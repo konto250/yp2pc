@@ -107,6 +107,12 @@ copyButton.addEventListener("click", async () => {
   } catch {
     feedUrl.focus();
     feedUrl.select();
-    copyStatus.textContent = "URLを選択しました。端末のコピー操作（Ctrl+C / ⌘C）を使ってください。";
+    feedUrl.setSelectionRange(0, feedUrl.value.length);
+    if (document.execCommand("copy")) {
+      copyButton.textContent = "コピーしました ✓";
+      copyStatus.textContent = "RSSのURLをコピーしました。";
+    } else {
+      copyStatus.textContent = "URLを長押しして「コピー」を選んでください。PCではCtrl+C / ⌘Cも使えます。";
+    }
   }
 });

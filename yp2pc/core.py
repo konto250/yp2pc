@@ -1,6 +1,7 @@
 """入力の正規化、公開URL、RSSの組み立て。"""
 
 import os
+import ipaddress
 import re
 from datetime import datetime, timezone
 from email.utils import format_datetime
@@ -62,14 +63,31 @@ def base_url(host):
         if deployment:
             configured = "https://" + deployment
     if configured:
-        url = urlsplit(configured)
-        if (url.scheme != "https" or not url.hostname or url.username or url.password
-                or url.path or url.query or url.fragment):
-            raise AppError("APP_BASE_URLに公開HTTPS URLを設定してください。", 503, "configuration_error")
+        try:
+            url = urlsplit(configured)
+            # HTTPは明示設定した家庭内IPv4とループバックだけに限定します。
+            lan_http = url.scheme == "http" and not os.environ.get("VERCEL") and is_local_host(url.hostname)
+            if ((url.scheme != "https" and not lan_http) or not url.hostname or url.username or url.password
+                    or url.path or url.query or url.fragment or url.port == 0):
+                raise ValueError
+        except ValueError:
+            raise AppError("APP_BASE_URLにHTTPS URL、またはLAN実験用のhttp://プライベートIPv4:ポートを設定してください。", 503, "configuration_error") from None
         return configured
     if re.fullmatch(r"(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?", host or ""):
         return "http://" + host
     raise AppError("公開URLが未設定です。APP_BASE_URLを設定してください。", 503, "configuration_error")
+
+
+def is_local_host(host):
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host or "")
+        return address.is_loopback or any(address in network for network in (
+            ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16")))
+    except ValueError:
+        return False
 
 
 def xml_text(value):

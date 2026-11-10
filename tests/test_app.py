@@ -70,6 +70,20 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("+0000", root.findtext("channel/item/pubDate"))
         self.assertNotIn(b"googlevideo", xml)
 
+    def test_explicit_lan_origin_and_invalid_configurations(self):
+        for origin in ["http://192.168.1.4:3000", "http://10.0.0.2:3000", "http://172.16.1.2:3000"]:
+            with self.subTest(origin=origin), patch.dict(os.environ, {"APP_BASE_URL": origin}, clear=True):
+                self.assertEqual(core.base_url("untrusted.test"), origin)
+                enclosure = ET.fromstring(core.rss_document(FEED, origin)).find("channel/item/enclosure")
+                self.assertTrue(enclosure.get("url").startswith(origin + "/audio/"))
+        for origin in ["http://8.8.8.8:3000", "http://169.254.169.254", "http://0.0.0.0:3000",
+                       "http://example.com", "http://192.168.1.4:99999", "http://192.168.1.4:0",
+                       "http://192.168.1.4:3000/path", "https://example.com:invalid", "http://[broken"]:
+            with self.subTest(origin=origin), patch.dict(os.environ, {"APP_BASE_URL": origin}, clear=True), self.assertRaises(core.AppError):
+                core.base_url("localhost")
+        with patch.dict(os.environ, {"APP_BASE_URL": "http://192.168.1.4:3000", "VERCEL": "1"}, clear=True), self.assertRaises(core.AppError):
+            core.base_url("localhost")
+
     def test_cache_is_bounded_and_expires(self):
         cache = youtube.MetadataCache(2)
         cache.put("old", 1, -1)
@@ -100,6 +114,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_bot_rejection_is_distinguished_from_missing_dependency(self):
         cases = [("Sign in to confirm you're not a bot", "youtube_blocked", 502),
+                 ("ログインして bot ではないことを確認してください", "youtube_blocked", 502),
                  ("No module named yt_dlp", "configuration_error", 503)]
         for stderr, code, status in cases:
             with self.subTest(code=code), patch.object(youtube, "command_prefix", return_value=["yt-dlp"]), patch.object(youtube.importlib.util, "find_spec", return_value=None), patch.object(youtube.shutil, "which", return_value=None), patch.object(youtube.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", stderr)):

@@ -1,8 +1,10 @@
 # YP2PC
 
-YouTubeプレイリストのURLから、Apple Podcastsなどで直接購読するRSSフィードを発行するWebサービスです。Vercelのみで動かし、音声ファイル・データベース・Blobストレージを使いません。
+YouTubeプレイリストのURLから、Apple Podcastsなどで直接購読するRSSフィードを発行するWebサービスです。VercelまたはローカルPCで動作し、音声ファイル・データベース・Blobストレージを使いません。
 
 **実験的な音声中継方式です。** YouTubeがVercelの送信元IPを拒否する場合や、M4A音声を取得できない動画では再生に失敗します。ローカルで取得できてもVercelで取得できる保証はありません。Apple Podcastsアプリ内での購読・再生は本番デプロイ後に確認してください。
+
+2026-11-10の実測では、Vercelの本番環境で指定プレイリストの音声取得が「ログインして bot ではないことを確認してください」で拒否されました。同じ動画はWindows PCからRSS生成・音声の部分取得・FFmpegによる15秒のデコードに成功しています。iPadアプリでの購読・再生は別途実機確認が必要です。
 
 ## 使い方
 
@@ -53,6 +55,36 @@ python dev.py
 
 `.env.example` は設定の説明用です。`dev.py` は `.env` を自動では読みません。PowerShellの環境変数か、VercelのEnvironment Variablesで設定してください。
 
+## Windows PCからiPadへのLAN内配信（実験用）
+
+PCとiPadを同じ家庭内ネットワークに接続します。PCは有線でも構いません。ゲストWi-Fiなどで端末間通信が禁止されている場合は接続できません。
+
+1. `ipconfig` でPCのLAN用IPv4アドレスを確認します。
+2. 以下のアドレスを実際の値に置き換え、PowerShellで起動します。必要なPython・yt-dlp・Node.js/Denoは前述のローカル起動と同じです。
+
+```powershell
+./scripts/start-lan.ps1 -Address 192.168.1.4
+```
+
+3. WindowsファイアウォールでTCP 3000への接続が遮断される場合は、管理者PowerShellで次の限定的な規則を追加します。PCのアドレス、Pythonのパス、インターフェース名は環境に合わせて変更してください。ネットワーク全体のプロファイルは変更しません。
+
+```powershell
+New-NetFirewallRule -Name 'YP2PC-LAN-3000' -DisplayName 'YP2PC LAN 実験 TCP 3000' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000 -LocalAddress 192.168.1.4 -RemoteAddress LocalSubnet -InterfaceAlias 'イーサネット' -Program 'D:\Python\Python312\python.exe' -Profile Any
+```
+
+4. iPadのSafariで `http://192.168.1.4:3000/` を開き、プレイリストからRSSを作成します。HTTP環境ではコピーAPIに制約があるため、ボタンでコピーできなければURL欄を長押ししてコピーしてください。
+5. iPadのPodcast →「ライブラリ」→「…」→「番組をURLで追加」にRSS URLを貼り付けてフォローします。指定プレイリストなら `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。
+
+RSSと音声のURLは `--base-url` で固定されます。HTTPは明示設定したプライベートIPv4・ループバックのみ許可し、Vercel上ではHTTPSに限定します。LAN用URLを外出先から利用することはできません。PCの停止・スリープ中も取得できませんが、Podcastアプリにダウンロード済みの音声は端末で再生できます。IPアドレスが変わると購読先も変わるため、継続利用時はルーターでDHCP予約を設定してください。
+
+サーバーは起動したPowerShellでCtrl+Cを押して停止します。実験後に追加規則を削除する場合は、管理者PowerShellで実行します。
+
+```powershell
+Remove-NetFirewallRule -Name 'YP2PC-LAN-3000'
+```
+
+`dev.py` は家庭内実験用の簡易HTTPサーバーです。インターネットへ公開する運用には適しません。
+
 ## Vercelへのデプロイ
 
 1. このリポジトリをGitHubの `konto250/yp2pc` にpushし、VercelでそのリポジトリをImportします。
@@ -65,7 +97,7 @@ python dev.py
 
 | 環境変数 | 用途 |
 | --- | --- |
-| `APP_BASE_URL` | RSSと音声URLに使う固定HTTPSオリジン。パスは含めません。 |
+| `APP_BASE_URL` | RSSと音声URLに使う固定HTTPSオリジン。LAN実験ではHTTPのプライベートIPv4も可。パスは含めません。 |
 | `MAX_EPISODES` | 先頭から取得する件数。既定10、1～10。 |
 | `YTDLP_BIN` | ローカルのyt-dlp実行ファイル。Vercelでは通常不要。 |
 

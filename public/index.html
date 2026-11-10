@@ -49,7 +49,7 @@
       <label for="feed-url">購読用RSS URL</label>
       <div class="copy-row"><input id="feed-url" readonly aria-describedby="copy-status"><button id="copy-button" class="primary" type="button">URLをコピー</button></div>
       <p id="copy-status" role="status" aria-live="polite"></p>
-      <p id="local-warning" class="notice" hidden>ローカル確認用のURLです。別の端末のApple Podcastsで購読するには、Vercelへデプロイした公開URLを使ってください。</p>
+      <p id="local-warning" class="notice" hidden>LAN実験用のURLです。iPadをPCと同じネットワークに接続し、PCとサーバーを起動したままお使いください。localhostや127.0.0.1のURLは別の端末から利用できません。</p>
       <p id="partial-warning" class="notice" hidden></p>
       <div class="result-actions"><a id="rss-link" target="_blank" rel="noopener">RSSを開く ↗</a><a id="youtube-link" target="_blank" rel="noopener">元のプレイリスト ↗</a></div>
       <details class="listen"><summary>エピソードを確認・試聴する <span id="episode-count"></span></summary><ol id="episodes"></ol></details>
@@ -60,7 +60,7 @@
       <div class="section-heading"><h2 id="how-title">いつものアプリで、3ステップ。</h2><span>使い方</span></div>
       <div class="steps"><article><span class="step-number">01</span><h3>プレイリストを貼る</h3><p>YouTubeの共有メニューから<br>プレイリストのURLをコピー。</p></article><article><span class="step-number">02</span><h3>RSSのURLをコピー</h3><p>「RSSを作成」を押して、<br>表示されたフィードURLをコピー。</p></article><article><span class="step-number">03</span><h3>Podcastで聴く</h3><p>アプリの「URLで番組を追加」に<br>貼り付けて、購読をスタート。</p></article></div>
     </section>
-    <section class="faq" aria-label="利用について"><details><summary>プレイリストに動画を追加したら？</summary><p>アプリがRSSを再取得すると、最新のプレイリストを確認します。対象はプレイリストの先頭から最大10件です。新しい動画が末尾に追加される場合は、YouTube側で並び順を変更してください。反映には本サービスのキャッシュ（最大5分）とアプリの更新間隔が影響します。</p></details><details><summary>どんな動画を聴けますか？</summary><p>公開動画のうち、M4A音声を取得できるものに対応します。非公開・年齢制限・メンバー限定・配信中のライブなどには対応していません。取得できなかった動画は結果に表示されます。利用できる権利・許可のあるコンテンツでお使いください。</p></details><details><summary>音声はどこに保存されますか？</summary><p>このサービスは音声ファイルを保存しません。再生時にYouTubeから取得し、Vercelを経由してアプリへ送ります。アプリ側のダウンロード機能では端末に保存されます。YouTubeで動画が削除された場合やアクセスが制限された場合は、再生できなくなります。</p></details></section>
+    <section class="faq" aria-label="利用について"><details><summary>プレイリストに動画を追加したら？</summary><p>アプリがRSSを再取得すると、最新のプレイリストを確認します。対象はプレイリストの先頭から最大10件です。新しい動画が末尾に追加される場合は、YouTube側で並び順を変更してください。反映には本サービスのキャッシュ（最大5分）とアプリの更新間隔が影響します。</p></details><details><summary>どんな動画を聴けますか？</summary><p>公開動画のうち、M4A音声を取得できるものに対応します。非公開・年齢制限・メンバー限定・配信中のライブなどには対応していません。取得できなかった動画は結果に表示されます。利用できる権利・許可のあるコンテンツでお使いください。</p></details><details><summary>音声はどこに保存されますか？</summary><p>このサービスは音声ファイルを保存しません。再生時にYouTubeから取得し、このサーバーを経由してアプリへ送ります。アプリ側のダウンロード機能では端末に保存されます。YouTubeで動画が削除された場合やアクセスが制限された場合は、再生できなくなります。</p></details></section>
   </main>
   <footer><span class="footer-brand">yp2pc.</span><p>画面を閉じて、耳をひらこう。</p><span>YouTube・Appleの公式サービスではありません。</span></footer>
 </body>

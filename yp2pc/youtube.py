@@ -100,7 +100,7 @@ def extract(url, extra, timeout=40):
         if "no module named" in error or "unrecognized arguments" in error:
             logging.error("音声取得ツールの依存または引数が不正です。終了コード=%s", result.returncode)
             raise AppError("音声取得ツールの実行環境に問題があります。サーバー設定を確認してください。", 503, "configuration_error")
-        if "confirm you" in error and "bot" in error:
+        if "bot" in error and ("confirm you" in error or "ログイン" in error):
             logging.warning("YouTubeによる自動アクセス制限を検出しました。")
             raise AppError("YouTubeがこのサーバーからの取得を自動アクセスとして制限しています。音声を取得できません。", 502, "youtube_blocked")
         if "private" in error or "does not exist" in error or "unavailable" in error:
