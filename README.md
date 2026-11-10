@@ -4,6 +4,31 @@ YouTubeプレイリストをApple Podcastで購読できるRSSに変換する、
 
 音声と動画サムネイルをサーバーのディスクに保存します。初回の準備後は、音声の再生・シーク時にYouTubeへ再接続しません。Linux DockerまたはWindows PCで動かす実験用の構成です。
 
+## 現在の稼働構成（2026-11-10）
+
+| 項目 | 現在の設定 |
+| --- | --- |
+| Web管理画面 | https://podcast.example.com/ |
+| 検証済みRSS | https://podcast.example.com/feed/PLF119azDj_Og.xml |
+| 実行環境 | Linux PC `user@192.168.1.121` のDocker Compose |
+| 配置先 | `/home/user/yp2pc` |
+| 永続データ | `/home/user/yp2pc/data` |
+| 配信経路 | Cloudflare Tunnel → `192.168.1.121:3001` → コンテナ内3000番 |
+| 認証 | 管理画面・一覧・追加・削除はパスワード必須。RSS・音声・画像は認証不要 |
+| 起動 | Docker Engineの自動起動が有効。コンテナは `unless-stopped` で再開 |
+
+Windowsの旧実験サーバーは停止済みです。現在の配信はWindows PCの稼働に依存しません。初期パスワードの控えはWindows作業ディレクトリの `.local/yp2pc-admin-password.txt`（Git管理外）にあります。変更方法は後述の管理画面設定を参照してください。
+
+Linux側は初回にソースのアーカイブを転送して配置したため、現在の `/home/user/yp2pc` はGit cloneされたディレクトリではありません。更新・バックアップ・停止方法とCloudflare設定の詳細は[Docker運用手順](docs/docker.md)にまとめています。
+
+## iPadから利用する（現行Linux版）
+
+1. [Web管理画面](https://podcast.example.com/)へログインし、YouTubeプレイリストのURLを入力します。
+2. 音声の準備完了後、表示されたRSS URLをコピーします。
+3. iPadのPodcast →「ライブラリ」→「…」→「番組をURLで追加」に貼り付けます。Podcastアプリへのパスワード設定は不要です。
+
+公開HTTPS URLからの登録・再生はiPad実機で確認済みです。旧Windows版のLAN用URLを登録している場合は、上記のHTTPS版URLを追加してください。Linux PCとDocker・cloudflaredが動作している間は、配信元と同じLANに接続する必要はありません。
+
 ## Linux Dockerで起動
 
 ```bash
@@ -16,13 +41,15 @@ docker compose up -d --build
 
 音声はホストの `data/` に保存し、コンテナ再作成後も保持します。必要なツールはイメージに同梱します。既存cloudflaredとの接続、Windowsからのデータ移行、実験機の配置先は[Docker運用手順](docs/docker.md)を参照してください。
 
-## 起動
+## Windowsで直接起動する場合
 
 Python 3.12、yt-dlp用のNode.jsまたはDeno、およびFFmpeg・FFprobeを使用します。FFmpeg・FFprobeはPATHに追加してください。
 
 ```powershell
 python -m venv .venv
 ./.venv/Scripts/python -m pip install -r requirements.txt
+./.venv/Scripts/python scripts/set_password.py
+# 出力されたハッシュを $env:ADMIN_PASSWORD_HASH に設定してから起動
 ./.venv/Scripts/python dev.py
 ```
 
@@ -40,7 +67,7 @@ python -m venv .venv
 
 端末にダウンロード済みの音声や、配信経路に残るキャッシュまでは削除しません。
 
-## iPadから利用する
+## WindowsのLAN内配信を試す場合（旧実験構成）
 
 PCとiPadを同じ家庭内ネットワークに接続します。PCは有線でも構いません。ゲストWi-Fiなどで端末間通信が禁止されている場合は接続できません。
 
@@ -60,7 +87,7 @@ New-NetFirewallRule -Name 'YP2PC-LAN-3000' -DisplayName 'YP2PC LAN 実験 TCP 30
 4. iPadのSafariで `http://192.168.1.4:3000/` を開き、プレイリストからRSSを作成します。初回はダウンロード完了を待ちます。コピーできない場合はURL欄を長押ししてコピーしてください。
 5. Podcast →「ライブラリ」→「…」→「番組をURLで追加」にRSS URLを貼り付けてフォローします。
 
-検証用プレイリストは `https://www.youtube.com/playlist?list=PLF119azDj_Og`、購読URLは `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。RSS URLとエピソードGUIDは維持します。音声URLにはファイルのハッシュによる版指定を付け、補正前のキャッシュと区別します。
+検証用プレイリストは `https://www.youtube.com/playlist?list=PLF119azDj_Og`、このWindows構成での購読URLは `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。エピソードGUIDはLinux版と共通です。音声URLにはファイルのハッシュによる版指定を付け、補正前のキャッシュと区別します。
 
 PCの停止・スリープ中や、外出先では取得できません。PCのIPアドレスが変わると購読先も変わるため、継続利用時はルーターでDHCP予約を設定してください。アプリにダウンロード済みの音声は端末から再生できます。
 
@@ -109,16 +136,27 @@ python -X utf8 scripts/smoke.py --base http://192.168.1.4:3000
 
 スモーク検証は登録済みRSS、音声HEAD、先頭・中間・末尾の部分取得、画像を認証なしで確認します。新規登録も検証する場合は `--create` を付けて管理パスワードを入力します。
 
-2026-11-10に旧中継型でiPadのRSS登録・再生を利用者が確認済みです。保存型では同じ音声26,592,765バイトと1400×1400のJPEGを保存し、RSS画像タグ・画像配信・音声HEAD・先頭/中間/末尾のRange取得を確認しました。PC上から測定した1024バイトのRange応答は約2～15msで、FFmpegで20分位置へシークしてから10秒デコードする検証にも成功しています。保存型への切替後のiPad上の操作感・画像表示は別途確認します。
+2026-11-10に旧中継型でiPadのRSS登録・再生を利用者が確認済みです。保存型では同じ音声26,592,765バイトと1400×1400のJPEGを保存し、RSS画像タグ・画像配信・音声HEAD・先頭/中間/末尾のRange取得を確認しました。PC上から測定した1024バイトのRange応答は約2～15msで、FFmpegで20分位置へシークしてから10秒デコードする検証にも成功しています。画像の配信成功は確認済みですが、iPadでのサムネイル表示については明示的な確認回答をまだ得ていません。
 
 同日のiPad実機確認で、DASH形式をそのまま保存した音声に「長さが約2倍・後半が無音」の報告がありました。保存後のコンテナー補正を追加し、既存ファイルも無劣化で移行しました。修正対象は165個の断片を持つM4Aから通常のM4Aになり、長さ1643.113651秒、サイズ26,573,969バイトです。補正前後のAAC音声データのSHA-256は一致しています。DASH形式の生成・補正・長さ・音声データ同一性の回帰テストを追加しました。利用者のiPadで27分23秒になり、末尾の余分な無音が解消したことを確認済みです。
+
+その後、Linux Dockerへのデータ移行、コンテナからの新規YouTube取得・M4A補正、コンテナ再作成後のデータ再利用、公開HTTPS経由の配信を検証しました。利用者のiPadでも、新しいHTTPS URLでの登録・再生を確認済みです。
+
+現在の回帰テストは38件で、WindowsとLinuxコンテナの両方で成功しています。公開HTTPSでは未ログインの管理APIが401となること、ログイン・ログアウト、認証なしのRSS・音声・画像配信を確認しました。削除の回帰テストでは、共有ファイルの保持、未共有ファイルの削除、削除済みフィードが公開URLから復活しないことを確認しています。
+
+## 構成変更の経緯
+
+1. 当初はVercel上で音声を保存せず中継する構成を試しましたが、YouTube側のbot判定で音声取得が拒否されました。Vercel専用ファイルは削除し、Git連携による自動デプロイも解除済みです。
+2. Windows PCでLAN内配信を実験し、シークの遅さを改善するため音声・画像の保存型へ変更しました。
+3. M4Aの長さが2倍になる症状に対し、DASH形式を通常のM4Aへ無劣化で補正する処理を追加しました。
+4. Linux Dockerと既存Cloudflare Tunnelへ移行し、管理画面の認証とフィード削除を追加しました。
 
 ## 制約
 
 - 公開動画のうちHTTPS M4Aを取得できるものが対象です。非公開・ログイン必須・年齢制限・ライブ配信中には対応しません。
 - 初回のYouTube取得は送信元IPの制限や仕様変更の影響を受けます。yt-dlpの更新が必要になる場合があります。
 - 初回は音声全体を保存するため時間がかかります。個人向けの単一プロセスとしてダウンロード・フィード操作は直列化しています。複数プロセスや多数利用者向けのキュー・ユーザー別アカウント・容量管理UIはありません。
-- `dev.py`は家庭内実験用の簡易HTTPサーバーです。インターネット公開・本番運用の構成は未確定です。
+- 現在は簡易HTTPサーバーをDocker内で動かし、Cloudflare Tunnel経由で実験公開しています。多人数向けの本番運用構成は未整備です。
 - Docker版はDocker Engine起動時に再開します。Windowsで直接起動する版の自動起動は未設定です。
 - カタログ申請ではなく、アプリへのURL直接登録用です。`itunes:block=Yes`、`itunes:explicit=true`を設定します。
 - 利用できる権利・許可のあるコンテンツを対象にしてください。
