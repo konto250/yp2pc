@@ -6,7 +6,7 @@ YouTubeプレイリストをApple Podcastで購読できるRSSに変換する、
 
 ## 起動
 
-Python 3.12と、yt-dlp用のNode.jsまたはDenoを使用します。
+Python 3.12、yt-dlp用のNode.jsまたはDeno、およびFFmpeg・FFprobeを使用します。FFmpeg・FFprobeはPATHに追加してください。
 
 ```powershell
 python -m venv .venv
@@ -14,7 +14,7 @@ python -m venv .venv
 ./.venv/Scripts/python dev.py
 ```
 
-`http://127.0.0.1:3000/` を開きます。既存のyt-dlp実行ファイルを使う場合は、`YTDLP_BIN`で指定するかPATHに追加してください。画像生成にはPillowが必要です。音声はM4Aをそのまま保存するので、再エンコードとFFmpegは不要です。
+`http://127.0.0.1:3000/` を開きます。既存のyt-dlp実行ファイルを使う場合は、`YTDLP_BIN`で指定するかPATHに追加してください。画像生成にはPillowが必要です。FFmpegはDASH形式の音声を通常のM4Aに組み直すために使用し、音声の再エンコードは行いません。
 
 ## iPadから利用する
 
@@ -36,7 +36,7 @@ New-NetFirewallRule -Name 'YP2PC-LAN-3000' -DisplayName 'YP2PC LAN 実験 TCP 30
 4. iPadのSafariで `http://192.168.1.4:3000/` を開き、プレイリストからRSSを作成します。初回はダウンロード完了を待ちます。コピーできない場合はURL欄を長押ししてコピーしてください。
 5. Podcast →「ライブラリ」→「…」→「番組をURLで追加」にRSS URLを貼り付けてフォローします。
 
-検証用プレイリストは `https://www.youtube.com/playlist?list=PLF119azDj_Og`、購読URLは `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。中継型から移行してもRSS URL・音声URL・エピソードGUIDは変わりません。
+検証用プレイリストは `https://www.youtube.com/playlist?list=PLF119azDj_Og`、購読URLは `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。RSS URLとエピソードGUIDは維持します。音声URLにはファイルのハッシュによる版指定を付け、補正前のキャッシュと区別します。
 
 PCの停止・スリープ中や、外出先では取得できません。PCのIPアドレスが変わると購読先も変わるため、継続利用時はルーターでDHCP予約を設定してください。アプリにダウンロード済みの音声は端末から再生できます。
 
@@ -49,7 +49,7 @@ Remove-NetFirewallRule -Name 'YP2PC-LAN-3000'
 ## 保存と配信
 
 - 既定の保存先は `.local/media/` です。音声M4A、1400×1400のJPEG画像、エピソード情報JSON、フィードの最新スナップショットを保存します。Gitには含めません。
-- 初回に音声全体を取得し、バイト数とM4Aヘッダーを確認してから公開します。途中の `.part` ファイルは配信しません。再起動後も完成ファイルを再利用します。
+- 初回に音声全体を取得し、バイト数とM4Aヘッダーを確認します。その後FFmpegで音声を再圧縮せず通常のM4Aへ組み直し、FFprobeで長さ・形式を検証してから公開します。再生情報をファイル先頭に配置し、DASHの断片構造は取り除きます。途中の `.part` ファイルは配信しません。旧形式の保存ファイルも利用時に補正し、再ダウンロードしません。
 - 音声のHEAD・単一Range・206・416・ETag・If-Rangeに対応します。シーク位置からローカルファイルを直接読み出します。
 - サムネイルは動画IDに対応するYouTube画像を取得し、文字などを切り落とさないよう上下または左右に余白を付けて正方形にします。RSSの各エピソードに `itunes:image` を付け、番組画像には画像のある先頭エピソードを使います。画像取得が失敗しても音声は掲載します。
 - プレイリストの先頭から最大10件を対象にし、フィード取得時に一覧を更新します（メモリキャッシュ5分）。新しい動画はYouTube側で先頭に並べてください。常駐の定期ダウンロード処理はありません。
@@ -57,7 +57,7 @@ Remove-NetFirewallRule -Name 'YP2PC-LAN-3000'
 - 既定の保存上限は5GiB、1件の音声上限は1GiBです。上限時は新規取得を止め、既存ファイルを保持します。容量確認にはファイルと画像用の余裕を含めます。
 - ファイルを整理する場合はサーバーを停止し、不要な動画IDの `.m4a`・`.jpg`・`.json` をまとめて削除してください。次回の一覧取得に含まれる動画は再取得されます。
 
-Apple Podcastは画像をキャッシュする場合があります。更新後はフィードを再読み込みし、エピソード詳細や再生画面で確認してください。サーバーのRSS更新とアプリ側の表示更新は同時ではありません。
+Apple Podcastは画像や音声をキャッシュする場合があります。更新後はフィードを再読み込みし、エピソード詳細や再生画面で確認してください。音声が補正前のままの場合は、対象エピソードのダウンロードを削除して再取得してください。番組のフォローを解除する必要はありません。
 
 ## 設定
 
@@ -70,6 +70,7 @@ Apple Podcastは画像をキャッシュする場合があります。更新後�
 | `MEDIA_MAX_BYTES` | 保存上限のバイト数。既定5368709120（5GiB）。 |
 | `MAX_EPISODES` | 一覧の先頭から取得する件数。既定10、1～10。 |
 | `YTDLP_BIN` | 既存のyt-dlp実行ファイルへのパス。未指定ならPythonパッケージ、次にPATH上のコマンドを使用。 |
+| `FFMPEG_BIN` / `FFPROBE_BIN` | 音声補正用の実行ファイル。未指定ならPATHから検索。 |
 
 起動時は `--host`、`--port`、`--base-url` を指定できます。LAN用HTTPは明示設定したプライベートIPv4・ループバックに限定します。
 
@@ -84,6 +85,8 @@ python -X utf8 scripts/smoke.py --base http://192.168.1.4:3000
 スモーク検証は実プレイリストを取得し、RSS、音声HEAD、先頭・中間・末尾の部分取得、画像を確認します。初回は音声と画像がサーバーに保存されます。
 
 2026-11-10に旧中継型でiPadのRSS登録・再生を利用者が確認済みです。保存型では同じ音声26,592,765バイトと1400×1400のJPEGを保存し、RSS画像タグ・画像配信・音声HEAD・先頭/中間/末尾のRange取得を確認しました。PC上から測定した1024バイトのRange応答は約2～15msで、FFmpegで20分位置へシークしてから10秒デコードする検証にも成功しています。保存型への切替後のiPad上の操作感・画像表示は別途確認します。
+
+同日のiPad実機確認で、DASH形式をそのまま保存した音声に「長さが約2倍・後半が無音」の報告がありました。保存後のコンテナー補正を追加し、既存ファイルも無劣化で移行しました。修正対象は165個の断片を持つM4Aから通常のM4Aになり、長さ1643.113651秒、サイズ26,573,969バイトです。補正前後のAAC音声データのSHA-256は一致しています。DASH形式の生成・補正・長さ・音声データ同一性の回帰テストを追加しました。iPadでの症状解消は再確認待ちです。
 
 ## 制約
 
@@ -100,3 +103,4 @@ python -X utf8 scripts/smoke.py --base http://192.168.1.4:3000
 - [Apple PodcastのRSS要件](https://podcasters.apple.com/support/823-podcast-requirements)
 - [Apple Podcastのエピソード画像仕様](https://podcasters.apple.com/support/5516-episode-art-template)
 - [yt-dlpのJavaScript実行環境](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
+- [yt-dlpのM4A DASH補正処理](https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/postprocessor/ffmpeg.py#L785-L790)

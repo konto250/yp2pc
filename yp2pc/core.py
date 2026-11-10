@@ -126,7 +126,7 @@ def rss_document(feed, origin):
         tag(item, "link", "https://www.youtube.com/watch?v=" + episode["id"])
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = "youtube:video:" + episode["id"]
         ET.SubElement(item, "enclosure", {
-            "url": origin + "/audio/" + episode["id"] + ".m4a",
+            "url": origin + "/audio/" + episode["id"] + ".m4a" + ("?v=" + episode["sha256"][:16] if episode.get("sha256") else ""),
             "length": str(episode["size"]), "type": "audio/x-m4a"
         })
         if episode.get("published"):

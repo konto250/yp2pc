@@ -1,6 +1,7 @@
 """保存の完了判定・再利用・画像・障害時のフィード継続を検証します。"""
 
 import io
+import hashlib
 import json
 import os
 import tempfile
@@ -28,8 +29,15 @@ class StorageTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {"MEDIA_DIR": self.directory.name}, clear=True)
         self.env.start()
+        def normalize(source, target, duration):
+            target.write_bytes(source.read_bytes())
+            return {"size": target.stat().st_size, "duration": duration, "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+                    "stored": True, "media_version": 1}
+        self.normalizer = patch.object(storage, "normalize", side_effect=normalize)
+        self.normalizer.start()
 
     def tearDown(self):
+        self.normalizer.stop()
         self.env.stop()
         self.directory.cleanup()
 
@@ -84,6 +92,29 @@ class StorageTests(unittest.TestCase):
             storage.prepare_episode(IDENTIFIER)
         self.assertEqual(error.exception.code, "invalid_range_response")
         self.assertIsNone(storage.read_episode(IDENTIFIER))
+
+    def test_old_audio_is_migrated_without_downloading_again(self):
+        self.prepare()
+        metadata = storage.read_episode(IDENTIFIER)
+        metadata.pop("media_version")
+        storage.write_json(storage.media_path(IDENTIFIER, ".json"), metadata)
+        with patch.object(youtube, "audio_source", side_effect=AssertionError("再取得は禁止")), patch.object(storage, "save_artwork", return_value=False):
+            result = storage.prepare_episode(IDENTIFIER)
+        self.assertEqual(result["media_version"], 1)
+        self.assertEqual(storage.media_path(IDENTIFIER).read_bytes(), PAYLOAD)
+        feed = {"id": "PLF119azDj_Og", "title": "番組", "description": "", "author": "作者", "episodes": [result]}
+        rss = ET.fromstring(core.rss_document(feed, "http://192.168.1.4:3000"))
+        self.assertTrue(rss.find("channel/item/enclosure").get("url").endswith("?v=" + result["sha256"][:16]))
+
+    def test_failed_migration_keeps_original_audio(self):
+        self.prepare()
+        metadata = storage.read_episode(IDENTIFIER)
+        metadata.pop("media_version")
+        storage.write_json(storage.media_path(IDENTIFIER, ".json"), metadata)
+        with patch.object(storage, "normalize", side_effect=core.AppError("補正失敗")), self.assertRaises(core.AppError):
+            storage.prepare_episode(IDENTIFIER)
+        self.assertEqual(storage.media_path(IDENTIFIER).read_bytes(), PAYLOAD)
+        self.assertNotIn("media_version", storage.read_episode(IDENTIFIER))
 
     def test_concurrent_requests_download_once(self):
         with patch.object(youtube, "audio_source", return_value=SOURCE), patch.object(youtube, "open_media", side_effect=lambda *args: Response(PAYLOAD)) as fetch, patch.object(storage, "save_artwork", return_value=False):

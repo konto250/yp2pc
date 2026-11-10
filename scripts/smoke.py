@@ -29,7 +29,8 @@ with checked_open(args.base + urlsplit(feed["feedUrl"]).path, timeout=280) as re
     rss = ET.fromstring(response.read())
 enclosure = rss.find("channel/item/enclosure")
 assert enclosure is not None
-audio_url = args.base + urlsplit(enclosure.attrib["url"]).path
+audio_parts = urlsplit(enclosure.attrib["url"])
+audio_url = args.base + audio_parts.path + ("?" + audio_parts.query if audio_parts.query else "")
 with checked_open(Request(audio_url, method="HEAD"), timeout=90) as response:
     length = int(response.headers["Content-Length"])
     assert length == int(enclosure.attrib["length"])

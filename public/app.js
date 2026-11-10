@@ -53,7 +53,7 @@ function showFeed(data) {
     audio.controls = true;
     audio.preload = "none";
     // 同じ画面のオリジンで試聴します。本番用RSSのURLとは独立です。
-    audio.src = `/audio/${encodeURIComponent(episode.id)}.m4a`;
+    audio.src = `/audio/${encodeURIComponent(episode.id)}.m4a${episode.sha256 ? `?v=${encodeURIComponent(episode.sha256.slice(0, 16))}` : ""}`;
     audio.setAttribute("aria-label", `${episode.title}を試聴`);
     const message = document.createElement("p");
     message.className = "audio-message";

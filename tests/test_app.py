@@ -152,7 +152,7 @@ class HttpTests(unittest.TestCase):
         self.audio = b"12345678"
         storage.media_path("TbalaZ5EhYA").write_bytes(self.audio)
         storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), {
-            "id": "TbalaZ5EhYA", "size": 8, "sha256": hashlib.sha256(self.audio).hexdigest()})
+            "id": "TbalaZ5EhYA", "size": 8, "sha256": hashlib.sha256(self.audio).hexdigest(), "media_version": 1})
 
     def tearDown(self):
         self.env.stop()

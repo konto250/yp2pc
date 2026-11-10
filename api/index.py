@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from yp2pc.core import AppError, PLAYLIST_ID, base_url, playlist_id, rss_document, video_id
 from yp2pc.youtube import build_feed
 from yp2pc import storage
+from yp2pc.media import MEDIA_VERSION
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
 RANGE = re.compile(r"bytes=(?:[0-9]{1,18}-[0-9]{0,18}|-[0-9]{1,18})\Z")
@@ -124,7 +125,9 @@ class handler(BaseHTTPRequestHandler):
                             {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"})
 
     def stream_audio(self, identifier):
-        saved = storage.read_episode(identifier) or storage.prepare_episode(identifier)
+        saved = storage.read_episode(identifier)
+        if not saved or saved.get("media_version") != MEDIA_VERSION:
+            saved = storage.prepare_episode(identifier)
         return self.serve_file(storage.media_path(identifier), "audio/x-m4a", saved["sha256"])
 
     def serve_file(self, path, media_type, digest=None):

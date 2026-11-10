@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from yp2pc.core import AppError, playlist_id, video_id
+from yp2pc.media import MEDIA_VERSION, normalize
 
 _download_lock = threading.Lock()
 
@@ -47,7 +48,7 @@ def write_json(path, value):
     temporary.replace(path)
 
 
-def check_space(size):
+def check_space(size, copies=1):
     try:
         limit = int(os.environ.get("MEDIA_MAX_BYTES", str(5 * 1024 ** 3)))
     except ValueError:
@@ -55,7 +56,7 @@ def check_space(size):
     used = sum(path.stat().st_size for path in root().iterdir() if path.is_file())
     if size <= 0 or size > 1024 ** 3:
         raise AppError("1件の保存上限は1GiBです。", 422, "media_too_large")
-    if used + size + 8 * 1024 ** 2 > limit or shutil.disk_usage(root()).free < size + 100 * 1024 ** 2:
+    if used + size * copies + 8 * 1024 ** 2 > limit or shutil.disk_usage(root()).free < size * copies + 100 * 1024 ** 2:
         raise AppError("音声の保存容量が不足しています。保存先とMEDIA_MAX_BYTESを確認してください。", 507, "storage_full")
 
 
@@ -134,7 +135,7 @@ def prepare_episode(identifier):
 
     identifier = video_id(identifier)
     saved = read_episode(identifier)
-    if saved and saved.get("artwork"):
+    if saved and saved.get("artwork") and saved.get("media_version") == MEDIA_VERSION:
         return saved
     # 個人用の単一プロセスで、重複取得と保存容量の競合を防ぎます。
     with _download_lock:
@@ -142,12 +143,13 @@ def prepare_episode(identifier):
         if not saved:
             target = media_path(identifier)
             temporary = target.with_suffix(".m4a.part")
+            normalized = target.with_suffix(".normalized.part")
             try:
                 for attempt in range(2):
                     source = audio_source(identifier, refresh=attempt > 0)
-                    check_space(source["size"])
+                    check_space(source["size"], copies=2)
                     try:
-                        digest = download_audio(source, temporary, open_media)
+                        download_audio(source, temporary, open_media)
                         break
                     except HTTPError as error:
                         status = error.code
@@ -156,14 +158,27 @@ def prepare_episode(identifier):
                             continue
                         raise AppError("音声を保存できませんでした。再試行してください。", 502, "download_failed") from None
                 saved = {key: source.get(key) for key in ("id", "title", "description", "duration", "published", "size")}
-                saved.update({"sha256": digest.hexdigest(), "stored": True})
-                temporary.replace(target)
+                saved.update(normalize(temporary, normalized, source.get("duration")))
+                normalized.replace(target)
                 write_json(media_path(identifier, ".json"), saved)
             except (URLError, TimeoutError, OSError) as error:
                 logging.warning("音声保存に失敗しました: %s", type(error).__name__)
                 raise AppError("音声を保存できませんでした。通信と保存先の空き容量を確認してください。", 502, "download_failed") from None
             finally:
                 temporary.unlink(missing_ok=True)
+                normalized.unlink(missing_ok=True)
+        elif saved.get("media_version") != MEDIA_VERSION:
+            # 旧形式の保存音声も、YouTubeへ再接続せずに補正します。
+            target = media_path(identifier)
+            normalized = target.with_suffix(".normalized.part")
+            check_space(saved["size"])
+            try:
+                details = normalize(target, normalized, saved.get("duration"))
+                normalized.replace(target)
+                saved.update(details)
+                write_json(media_path(identifier, ".json"), saved)
+            finally:
+                normalized.unlink(missing_ok=True)
         try:
             saved["artwork"] = save_artwork(identifier)
         except ImportError:
@@ -180,7 +195,12 @@ def save_feed(feed):
 def load_feed(identifier):
     try:
         feed = json.loads((root() / ("feed-" + playlist_id(identifier) + ".json")).read_text(encoding="utf-8"))
-        feed["episodes"] = [saved for episode in feed["episodes"] if (saved := read_episode(episode["id"]))]
+        episodes = []
+        for episode in feed["episodes"]:
+            saved = read_episode(episode["id"])
+            if saved:
+                episodes.append(prepare_episode(episode["id"]) if saved.get("media_version") != MEDIA_VERSION else saved)
+        feed["episodes"] = episodes
         return feed if feed["episodes"] else None
     except (OSError, ValueError, KeyError, TypeError):
         return None
