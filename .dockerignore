@@ -1,0 +1,13 @@
+**
+!requirements.txt
+!dev.py
+!api/
+!api/*.py
+!yp2pc/
+!yp2pc/*.py
+!public/
+!public/**
+!scripts/
+!scripts/smoke.py
+!tests/
+!tests/*.py

@@ -46,7 +46,7 @@ for byte_range in ["bytes=0-1023", f"bytes={length // 2}-{length // 2 + 1023}", 
         print(f"音声部分取得: HTTP {response.status}、{response.headers['Content-Range']}、{len(audio)} バイト、{(time.perf_counter() - started) * 1000:.1f}ms")
 image = rss.find("channel/item/{http://www.itunes.com/dtds/podcast-1.0.dtd}image")
 assert image is not None, "エピソード画像がありません。"
-with checked_open(image.attrib["href"]) as response:
+with checked_open(args.base + urlsplit(image.attrib["href"]).path) as response:
     assert response.headers["Content-Type"] == "image/jpeg"
     assert response.read(2) == b"\xff\xd8"
     print("エピソード画像: JPEG取得に成功しました。")
