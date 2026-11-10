@@ -90,6 +90,8 @@ yt-dlp更新が必要な場合は `docker compose build --pull --no-cache` で�
 
 ## 今回の実験機
 
+ユーザー名とホームディレクトリは `user` を使った例です。実際の環境に合わせて読み替えてください。
+
 - 接続先：`user@192.168.1.121`（`konto-hdl2`、x86_64）
 - 配置先：`/home/user/yp2pc`
 - データ：`/home/user/yp2pc/data`
