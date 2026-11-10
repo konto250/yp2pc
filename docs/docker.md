@@ -31,7 +31,9 @@ docker compose logs --tail=50 yp2pc
 
 ホスト上で既存のcloudflaredが稼働している場合、そのトンネルに公開ホスト名を追加します。
 
-| 設定 | この実験環境の値 |
+以下の公開ホスト名は例です。実際に使用するドメインに置き換えてください。
+
+| 設定 | 設定例 |
 | --- | --- |
 | 公開ホスト名 | `podcast.example.com` |
 | サービス種別 | HTTP |
@@ -50,7 +52,7 @@ Cloudflare One → Networking → Tunnels（画面によっては Networks → C
 docker compose up -d
 ```
 
-公開後の購読URLは `https://podcast.example.com/feed/PLF119azDj_Og.xml` です。Windows PCの旧URLからホスト名が変わるため、iPadでは新しいURLで番組を追加します。エピソードのGUIDは維持します。
+公開後の購読URLは `https://podcast.example.com/feed/<プレイリストID>.xml` の形式です。実際のURLは管理画面からコピーしてください。Windows PCの旧URLからホスト名が変わるため、iPadでは新しいURLで番組を追加します。エピソードのGUIDは維持します。
 
 PodcastアプリがRSS・音声・画像を直接取得するため、Cloudflare Accessでサイト全体にログインを要求しないでください。管理画面と追加・削除APIはアプリ自身がパスワードで保護します。
 
@@ -96,7 +98,7 @@ yt-dlp更新が必要な場合は `docker compose build --pull --no-cache` で�
 - 初回はWindowsからソースをアーカイブ転送して配置。Git clone配置ではないため、このディレクトリでは現時点で `git pull` は使用しません。
 - Windowsの旧実験サーバーは移行確認後に停止。Linux版の起動はWindows PCの稼働に依存しません。
 
-保存データの引継ぎ、LAN内のRSS・音声Range・画像配信、Linuxコンテナからの新規YouTube取得とM4A補正を確認済みです。公開HTTPSの `https://podcast.example.com` でも、RSS作成・音声の先頭/中間/末尾の206応答・JPEG配信に成功しました。利用者のiPadで、新しいURLによる登録・再生も確認済みです。
+保存データの引継ぎ、LAN内のRSS・音声Range・画像配信、Linuxコンテナからの新規YouTube取得とM4A補正を確認済みです。公開HTTPS経由でも、RSS作成・音声の先頭/中間/末尾の206応答・JPEG配信に成功しました。利用者のiPadで、新しいURLによる登録・再生も確認済みです。
 
 管理画面のパスワード保護とフィード削除機能を反映済みです。38件の回帰テストに加えて、公開HTTPSで未認証の一覧・追加・削除の401、ログイン・ログアウト、認証なしのRSS・音声・画像配信を確認しました。フィード削除時は、ほかのフィードで使っていない保存音声・画像を削除する設定が標準です。
 

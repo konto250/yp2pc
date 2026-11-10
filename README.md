@@ -8,8 +8,6 @@ YouTubeプレイリストをApple Podcastで購読できるRSSに変換する、
 
 | 項目 | 現在の設定 |
 | --- | --- |
-| Web管理画面 | https://podcast.example.com/ |
-| 検証済みRSS | https://podcast.example.com/feed/PLF119azDj_Og.xml |
 | 実行環境 | Linux PC `user@192.168.1.121` のDocker Compose |
 | 配置先 | `/home/user/yp2pc` |
 | 永続データ | `/home/user/yp2pc/data` |
@@ -23,11 +21,11 @@ Linux側は初回にソースのアーカイブを転送して配置したため
 
 ## iPadから利用する（現行Linux版）
 
-1. [Web管理画面](https://podcast.example.com/)へログインし、YouTubeプレイリストのURLを入力します。
+1. 設定した公開URLのWeb管理画面へログインし、YouTubeプレイリストのURLを入力します。
 2. 音声の準備完了後、表示されたRSS URLをコピーします。
 3. iPadのPodcast →「ライブラリ」→「…」→「番組をURLで追加」に貼り付けます。Podcastアプリへのパスワード設定は不要です。
 
-公開HTTPS URLからの登録・再生はiPad実機で確認済みです。旧Windows版のLAN用URLを登録している場合は、上記のHTTPS版URLを追加してください。Linux PCとDocker・cloudflaredが動作している間は、配信元と同じLANに接続する必要はありません。
+公開HTTPS URLからの登録・再生はiPad実機で確認済みです。旧Windows版のLAN用URLを登録している場合は、管理画面からコピーしたHTTPS版RSS URLを追加してください。Linux PCとDocker・cloudflaredが動作している間は、配信元と同じLANに接続する必要はありません。
 
 ## Linux Dockerで起動
 
