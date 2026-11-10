@@ -58,15 +58,11 @@ def max_episodes():
 
 def base_url(host):
     configured = os.environ.get("APP_BASE_URL", "").rstrip("/")
-    if not configured:
-        deployment = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL") or os.environ.get("VERCEL_URL")
-        if deployment:
-            configured = "https://" + deployment
     if configured:
         try:
             url = urlsplit(configured)
             # HTTPは明示設定した家庭内IPv4とループバックだけに限定します。
-            lan_http = url.scheme == "http" and not os.environ.get("VERCEL") and is_local_host(url.hostname)
+            lan_http = url.scheme == "http" and is_local_host(url.hostname)
             if ((url.scheme != "https" and not lan_http) or not url.hostname or url.username or url.password
                     or url.path or url.query or url.fragment or url.port == 0):
                 raise ValueError
@@ -115,7 +111,9 @@ def rss_document(feed, origin):
     tag(channel, f"{{{ITUNES}}}block", "Yes")
     tag(channel, f"{{{ITUNES}}}explicit", "true")
     ET.SubElement(channel, f"{{{ITUNES}}}category", {"text": "Leisure"})
-    ET.SubElement(channel, f"{{{ITUNES}}}image", {"href": origin + "/cover.png"})
+    artwork = next((episode for episode in feed["episodes"] if episode.get("artwork")), None)
+    cover = origin + "/artwork/" + artwork["id"] + ".jpg" if artwork else origin + "/cover.png"
+    ET.SubElement(channel, f"{{{ITUNES}}}image", {"href": cover})
     ET.SubElement(channel, f"{{{ATOM}}}link", {
         "href": origin + "/feed/" + feed["id"] + ".xml", "rel": "self", "type": "application/rss+xml"
     })
@@ -123,6 +121,8 @@ def rss_document(feed, origin):
         item = ET.SubElement(channel, "item")
         tag(item, "title", episode["title"])
         tag(item, "description", episode.get("description", ""))
+        if episode.get("artwork"):
+            ET.SubElement(item, f"{{{ITUNES}}}image", {"href": origin + "/artwork/" + episode["id"] + ".jpg"})
         tag(item, "link", "https://www.youtube.com/watch?v=" + episode["id"])
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = "youtube:video:" + episode["id"]
         ET.SubElement(item, "enclosure", {

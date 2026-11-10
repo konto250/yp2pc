@@ -1,1 +1,2 @@
 yt-dlp[default]>=2026.6.9,<2027
+Pillow>=11,<13

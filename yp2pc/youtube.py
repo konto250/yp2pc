@@ -1,4 +1,4 @@
-"""yt-dlpによるメタデータ取得。音声ファイルは保存しません。"""
+"""yt-dlpによるメタデータ取得と保存済み音声のフィード生成。"""
 
 import importlib.util
 import json
@@ -13,7 +13,6 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -71,21 +70,15 @@ def extract(url, extra, timeout=40):
         "--dump-single-json", "--socket-timeout", "10", "--retries", "0",
         "--extractor-retries", "0", "--no-warnings", "--extractor-args", "youtube:lang=ja"
     ]
-    bundled_deno = Path(__file__).resolve().parents[1] / "vendor" / "deno"
-    if bundled_deno.is_file():
-        args += ["--js-runtimes", "deno:" + str(bundled_deno)]
-    elif importlib.util.find_spec("deno"):
-        import deno
-        args += ["--js-runtimes", "deno:" + str(deno.find_deno_bin())]
+    if shutil.which("deno"):
+        args += ["--js-runtimes", "deno"]
     elif shutil.which("node"):
         args += ["--js-runtimes", "node"]
     if not extract_slots.acquire(timeout=10):
         raise AppError("処理が混み合っています。少し待って再試行してください。", 503, "busy")
     try:
         result = subprocess.run(args + extra + ["--", url], capture_output=True,
-                                text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                                env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path),
-                                     "DENO_DIR": os.path.join(os.environ.get("TMPDIR", os.environ.get("TEMP", "/tmp")), "yp2pc-deno")})
+                                text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired:
         raise AppError("YouTubeからの取得がタイムアウトしました。時間をおいて再試行してください。", 504, "youtube_timeout") from None
     except OSError:
@@ -192,14 +185,26 @@ def audio_source(identifier, refresh=False):
 
 
 def build_feed(identifier):
+    from yp2pc import storage
+
     identifier = playlist_id(identifier)
     limit = max_episodes()
     key = f"feed:{identifier}:{limit}"
     saved = cache.get(key)
     if saved:
         return saved
-    info = extract("https://www.youtube.com/playlist?list=" + identifier,
-                   ["--flat-playlist", "--playlist-end", str(limit)])
+    try:
+        info = extract("https://www.youtube.com/playlist?list=" + identifier,
+                       ["--flat-playlist", "--playlist-end", str(limit)])
+    except AppError:
+        previous = storage.load_feed(identifier)
+        if not previous:
+            raise
+        previous["issues"] = [{"id": identifier, "message": "YouTubeの一覧を更新できないため、保存済みのフィードを表示しています。"}]
+        previous["episodes"] = previous["episodes"][:limit]
+        previous["limit"] = limit
+        cache.put(key, previous, 60)
+        return previous
     entries = info.get("entries") or []
     ids = list(dict.fromkeys(e.get("id") for e in entries if e and VIDEO_ID.fullmatch(e.get("id") or "")))[:limit]
     if not ids:
@@ -207,7 +212,7 @@ def build_feed(identifier):
 
     def resolve(identifier):
         try:
-            source = audio_source(identifier)
+            source = storage.prepare_episode(identifier)
             # 一時音声URLをRSS・ブラウザへ露出させません。
             return {k: v for k, v in source.items() if k not in {"url", "headers"}}, None
         except AppError as error:
@@ -224,4 +229,5 @@ def build_feed(identifier):
             "episodes": episodes, "issues": issues, "scannedCount": len(ids),
             "totalCount": info.get("playlist_count"), "limit": limit}
     cache.put(key, feed, 300)
+    storage.save_feed(feed)
     return feed

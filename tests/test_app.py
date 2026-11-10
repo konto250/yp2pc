@@ -1,6 +1,9 @@
-"""外部サービスなしでRSS、入力制限、音声中継の契約を検証します。"""
+"""外部サービスなしでRSS、入力制限、保存済み音声の配信を検証します。"""
 
 import io
+import hashlib
+import tempfile
+from pathlib import Path
 import json
 import os
 import threading
@@ -13,7 +16,7 @@ from urllib.error import HTTPError
 from xml.etree import ElementTree as ET
 
 from api.index import handler
-from yp2pc import core, youtube
+from yp2pc import core, youtube, storage
 
 FEED = {
     "id": "PLF119azDj_Og", "title": '日本語 & <番組> "テスト"\x00', "description": "説明\nテスト",
@@ -81,8 +84,6 @@ class ValidationTests(unittest.TestCase):
                        "http://192.168.1.4:3000/path", "https://example.com:invalid", "http://[broken"]:
             with self.subTest(origin=origin), patch.dict(os.environ, {"APP_BASE_URL": origin}, clear=True), self.assertRaises(core.AppError):
                 core.base_url("localhost")
-        with patch.dict(os.environ, {"APP_BASE_URL": "http://192.168.1.4:3000", "VERCEL": "1"}, clear=True), self.assertRaises(core.AppError):
-            core.base_url("localhost")
 
     def test_cache_is_bounded_and_expires(self):
         cache = youtube.MetadataCache(2)
@@ -97,12 +98,12 @@ class ValidationTests(unittest.TestCase):
     def test_feed_handles_partial_failure_without_empty_success(self):
         playlist = {"title": "番組", "entries": [{"id": "TbalaZ5EhYA"}, {"id": "abcdefghijk"}]}
         episode = {**FEED["episodes"][0], "url": "https://r1.googlevideo.com/signed", "headers": {}}
-        with patch.object(youtube, "cache", youtube.MetadataCache()), patch.object(youtube, "extract", return_value=playlist), patch.object(youtube, "audio_source", side_effect=[episode, core.AppError("取得不可")]):
+        with patch.object(youtube, "cache", youtube.MetadataCache()), patch.object(youtube, "extract", return_value=playlist), patch.object(storage, "prepare_episode", side_effect=[episode, core.AppError("取得不可")]), patch.object(storage, "save_feed"):
             feed = youtube.build_feed(FEED["id"])
             self.assertEqual(len(feed["episodes"]), 1)
             self.assertEqual(len(feed["issues"]), 1)
             self.assertNotIn("url", feed["episodes"][0])
-        with patch.object(youtube, "cache", youtube.MetadataCache()), patch.object(youtube, "extract", return_value=playlist), patch.object(youtube, "audio_source", side_effect=core.AppError("取得不可")):
+        with patch.object(youtube, "cache", youtube.MetadataCache()), patch.object(youtube, "extract", return_value=playlist), patch.object(storage, "prepare_episode", side_effect=core.AppError("取得不可")):
             with self.assertRaises(core.AppError) as error:
                 youtube.build_feed(FEED["id"])
             self.assertEqual(error.exception.code, "no_playable_episodes")
@@ -145,11 +146,17 @@ class HttpTests(unittest.TestCase):
         cls.thread.join()
 
     def setUp(self):
-        self.env = patch.dict(os.environ, {}, clear=True)
+        self.directory = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {"MEDIA_DIR": self.directory.name}, clear=True)
         self.env.start()
+        self.audio = b"12345678"
+        storage.media_path("TbalaZ5EhYA").write_bytes(self.audio)
+        storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), {
+            "id": "TbalaZ5EhYA", "size": 8, "sha256": hashlib.sha256(self.audio).hexdigest()})
 
     def tearDown(self):
         self.env.stop()
+        self.directory.cleanup()
 
     def request(self, method, path, body=None, headers=None):
         connection = HTTPConnection(*self.server.server_address, timeout=5)
@@ -191,48 +198,51 @@ class HttpTests(unittest.TestCase):
     def test_cross_origin_submission_is_rejected(self):
         self.assertEqual(self.request("POST", "/api/feeds", "{}", {"Content-Type": "application/json", "Origin": "https://evil.example"})[0], 403)
 
-    def test_audio_full_response_and_cleanup(self):
-        upstream = Upstream(b"12345678")
-        with patch("api.index.audio_source", return_value={}), patch("api.index.open_media", return_value=upstream):
+    def test_stored_audio_never_calls_youtube(self):
+        with patch.object(youtube, "audio_source", side_effect=AssertionError("外部取得は禁止")):
             status, headers, body = self.request("GET", "/audio/TbalaZ5EhYA.m4a")
-        self.assertEqual(status, 200)
-        self.assertEqual(body, b"12345678")
-        self.assertEqual(headers["Content-Length"], "8")
-        self.assertEqual(headers["Cache-Control"], "no-store")
-        self.assertTrue(upstream.closed)
+            self.assertEqual((status, body), (200, self.audio))
+            self.assertEqual(headers["Content-Length"], "8")
+            self.assertEqual(headers["Accept-Ranges"], "bytes")
+            status, head, body = self.request("HEAD", "/audio/TbalaZ5EhYA.m4a")
+            self.assertEqual((status, body), (200, b""))
+            self.assertEqual(head["Content-Length"], "8")
 
-    def test_audio_range_and_head(self):
-        with patch("api.index.audio_source", return_value={}), patch("api.index.open_media", return_value=Upstream(b"234", {"Content-Length": "3", "Content-Range": "bytes 1-3/8"}, 206)) as media:
-            status, headers, body = self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": "bytes=1-3"})
-            self.assertEqual((status, body), (206, b"234"))
-            self.assertEqual(headers["Content-Range"], "bytes 1-3/8")
-            media.assert_called_once_with({}, "GET", "bytes=1-3")
-        with patch("api.index.audio_source", return_value={}), patch("api.index.open_media", return_value=Upstream(b"", {"Content-Length": "100"})):
-            status, headers, body = self.request("HEAD", "/audio/TbalaZ5EhYA.m4a")
-            self.assertEqual(status, 200)
-            self.assertEqual(body, b"")
-            self.assertEqual(headers["Content-Length"], "100")
+    def test_stored_audio_seek_ranges(self):
+        for requested, content, expected in [("bytes=1-3", b"234", "bytes 1-3/8"),
+                                             ("bytes=5-", b"678", "bytes 5-7/8"),
+                                             ("bytes=-2", b"78", "bytes 6-7/8"),
+                                             ("bytes=6-999", b"78", "bytes 6-7/8"),
+                                             ("bytes=-999", self.audio, "bytes 0-7/8")]:
+            with self.subTest(requested=requested):
+                status, headers, body = self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": requested})
+                self.assertEqual((status, body), (206, content))
+                self.assertEqual(headers["Content-Range"], expected)
+                self.assertEqual(int(headers["Content-Length"]), len(content))
+        status, headers, body = self.request("HEAD", "/audio/TbalaZ5EhYA.m4a", headers={"Range": "bytes=1-3"})
+        self.assertEqual((status, body, headers["Content-Length"]), (206, b"", "3"))
 
-    def test_audio_refreshes_expired_url_once(self):
-        failure = HTTPError("", 403, "期限切れ", {}, None)
-        with patch("api.index.audio_source", return_value={}) as source, patch("api.index.open_media", side_effect=[failure, Upstream()]):
-            self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a")[0], 200)
-            self.assertEqual(source.call_count, 2)
-            source.assert_called_with("TbalaZ5EhYA", refresh=True)
-
-    def test_head_uses_small_get_probe_and_reports_full_size(self):
-        with patch("api.index.audio_source", return_value={}), patch("api.index.open_media", return_value=Upstream(b"a", {"Content-Length": "1", "Content-Range": "bytes 0-0/12345"}, 206)) as media:
-            status, headers, body = self.request("HEAD", "/audio/TbalaZ5EhYA.m4a")
-            self.assertEqual(status, 200)
-            self.assertEqual(headers["Content-Length"], "12345")
-            self.assertNotIn("Content-Range", headers)
-            self.assertEqual(body, b"")
-            media.assert_called_once_with({}, "GET", "bytes=0-0")
-
-    def test_invalid_ranges_and_invalid_video_ids(self):
-        self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": "bytes=1-2,3-4"})[0], 416)
+    def test_invalid_ranges_and_video_ids(self):
+        for requested in ["bytes=9-", "bytes=4-3", "bytes=-0", "bytes=1-2,3-4", "invalid"]:
+            status, headers, body = self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": requested})
+            self.assertEqual((status, body), (416, b""))
+            self.assertEqual(headers["Content-Range"], "bytes */8")
         self.assertEqual(self.request("GET", "/audio/short.m4a")[0], 404)
         self.assertEqual(self.request("GET", "/audio/../../secrets.m4a")[0], 404)
+
+    def test_stored_conditional_requests(self):
+        _, headers, _ = self.request("HEAD", "/audio/TbalaZ5EhYA.m4a")
+        self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"If-None-Match": headers["ETag"]})[0], 304)
+        self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": "bytes=1-3", "If-Range": headers["ETag"]})[0], 206)
+        status, _, body = self.request("GET", "/audio/TbalaZ5EhYA.m4a", headers={"Range": "bytes=1-3", "If-Range": '"old"'})
+        self.assertEqual((status, body), (200, self.audio))
+
+    def test_artwork_response_and_missing_art(self):
+        path = "/artwork/TbalaZ5EhYA.jpg"
+        self.assertEqual(self.request("GET", path)[0], 404)
+        storage.media_path("TbalaZ5EhYA", ".jpg").write_bytes(b"jpeg-data")
+        status, headers, body = self.request("GET", path)
+        self.assertEqual((status, headers["Content-Type"], body), (200, "image/jpeg", b"jpeg-data"))
 
 
 if __name__ == "__main__":

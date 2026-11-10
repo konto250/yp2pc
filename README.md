@@ -1,139 +1,102 @@
 # YP2PC
 
-YouTubeプレイリストのURLから、Apple Podcastsなどで直接購読するRSSフィードを発行するWebサービスです。VercelまたはローカルPCで動作し、音声ファイル・データベース・Blobストレージを使いません。
+YouTubeプレイリストをApple Podcastで購読できるRSSに変換する、セルフホスト用Webサービスです。ブラウザでプレイリストURLを入力すると、コピー可能なRSS URLを表示します。
 
-**実験的な音声中継方式です。** YouTubeがVercelの送信元IPを拒否する場合や、M4A音声を取得できない動画では再生に失敗します。ローカルで取得できてもVercelで取得できる保証はありません。Windows PCから同じLAN内のiPadへの購読・再生は実機で確認済みです。
+音声と動画サムネイルをサーバーのディスクに保存します。初回の準備後は、音声の再生・シーク時にYouTubeへ再接続しません。現在はWindows PCと同じLAN内のiPadで使う実験用の構成です。
 
-2026-11-10の実測では、Vercelの本番環境で指定プレイリストの音声取得が「ログインして bot ではないことを確認してください」で拒否されました。同じ動画はWindows PCからRSS生成・音声の部分取得・FFmpegによる15秒のデコードに成功しています。さらに利用者のiPadで、LAN内のRSS URLをApple Podcastに登録し、再生できたことを確認しました。確認対象は `PLF119azDj_Og` の1件で、ほかの動画・外出先接続・PC再起動後の自動起動は未検証です。
+## 起動
 
-## 使い方
-
-1. 公開YouTubeプレイリストのURLを入力し、「RSSを作成」を押します。
-2. 表示されたRSS URLをコピーします。画面からエピソードを試聴することもできます。
-3. Apple Podcastsで「ライブラリ」のメニューから「URLで番組を追加」を選びます。Macでは「ファイル」→「URLで番組を追加」です。
-
-RSSのURLは `/feed/<プレイリストID>.xml` で固定です。アプリがRSSを更新するとプレイリストを再確認します。先頭から最大10件が対象なので、YouTube側で新しい動画を先頭に並べてください。削除された動画の音声は保持しません。
-
-カタログへの番組申請ではなく、アプリへのURLによる直接購読が対象です。RSSには `itunes:block=Yes` を設定しています。内容の明示的判定は行わず、`itunes:explicit=true` としています。
-
-## 構成
-
-```text
-ブラウザ ── プレイリストURL ──→ Vercel Python Function
-                                  │ yt-dlpで一覧・音声情報を取得
-         ←── 固定RSS URL ─────────┘
-
-Podcastアプリ ── RSS取得 ─────→ Vercel → YouTubeの最新一覧
-              ── 音声再生 ────→ Vercel → YouTubeのM4A音声
-              ←── 音声バイト列 ──────┘   （保存せず中継）
-```
-
-- `public/`：日本語UI。ビルド不要のHTML・CSS・JavaScript。
-- `api/index.py`：Vercel Python Function。POST `/api/feeds`、GET/HEAD `/feed/*.xml`、GET/HEAD `/audio/*.m4a`。
-- `yp2pc/youtube.py`：yt-dlpを期限付き子プロセスで実行。YouTubeのM4A音声を選択し、再エンコードしません。FFmpegは不要です。
-- `yp2pc/core.py`：URL検証とRSS生成。固定GUID、実ファイルサイズ、音声形式、公開日、番組画像を付与します。
-- 音声は64KiBずつ中継し、HEAD・単一Range・206・416に対応します。署名URLが拒否された場合は1回再取得します。
-- キャッシュはインスタンス内のメタデータのみです。フィードは5分、音声情報は有効期限を考慮して最大10分。コールドスタートでは再取得します。
-- エピソードの一部に失敗した場合は取得できたものだけ掲載し、画面に失敗件数を表示します。全件失敗時はエラーにし、空のRSSを成功扱いしません。
-
-## ローカル起動
-
-Python 3.12を使用します。
+Python 3.12と、yt-dlp用のNode.jsまたはDenoを使用します。
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python dev.py
+./.venv/Scripts/python -m pip install -r requirements.txt
+./.venv/Scripts/python dev.py
 ```
 
-`http://127.0.0.1:3000` を開きます。既存のyt-dlp実行ファイルとNode.js/Denoがある場合は、標準ライブラリだけでローカル起動できます。
+`http://127.0.0.1:3000/` を開きます。既存のyt-dlp実行ファイルを使う場合は、`YTDLP_BIN`で指定するかPATHに追加してください。画像生成にはPillowが必要です。音声はM4Aをそのまま保存するので、再エンコードとFFmpegは不要です。
 
-```powershell
-$env:YTDLP_BIN = 'C:/ffmpeg/bin/yt-dlp.exe'
-python dev.py
-```
-
-`.env.example` は設定の説明用です。`dev.py` は `.env` を自動では読みません。PowerShellの環境変数か、VercelのEnvironment Variablesで設定してください。
-
-## Windows PCからiPadへのLAN内配信（実験用）
+## iPadから利用する
 
 PCとiPadを同じ家庭内ネットワークに接続します。PCは有線でも構いません。ゲストWi-Fiなどで端末間通信が禁止されている場合は接続できません。
 
-1. `ipconfig` でPCのLAN用IPv4アドレスを確認します。
-2. 以下のアドレスを実際の値に置き換え、PowerShellで起動します。必要なPython・yt-dlp・Node.js/Denoは前述のローカル起動と同じです。
+1. `ipconfig`でPCのLAN用IPv4アドレスを確認します。
+2. アドレスを実際の値に置き換えて、PowerShellで起動します。
 
 ```powershell
 ./scripts/start-lan.ps1 -Address 192.168.1.4
 ```
 
-3. WindowsファイアウォールでTCP 3000への接続が遮断される場合は、管理者PowerShellで次の限定的な規則を追加します。PCのアドレス、Pythonのパス、インターフェース名は環境に合わせて変更してください。ネットワーク全体のプロファイルは変更しません。
+3. Windowsファイアウォールに遮断される場合は、管理者PowerShellで限定的な規則を追加します。以下のアドレス、Pythonのパス、インターフェース名は環境に合わせて変更してください。
 
 ```powershell
 New-NetFirewallRule -Name 'YP2PC-LAN-3000' -DisplayName 'YP2PC LAN 実験 TCP 3000' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3000 -LocalAddress 192.168.1.4 -RemoteAddress LocalSubnet -InterfaceAlias 'イーサネット' -Program 'D:\Python\Python312\python.exe' -Profile Any
 ```
 
-4. iPadのSafariで `http://192.168.1.4:3000/` を開き、プレイリストからRSSを作成します。HTTP環境ではコピーAPIに制約があるため、ボタンでコピーできなければURL欄を長押ししてコピーしてください。
-5. iPadのPodcast →「ライブラリ」→「…」→「番組をURLで追加」にRSS URLを貼り付けてフォローします。指定プレイリストなら `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。
+4. iPadのSafariで `http://192.168.1.4:3000/` を開き、プレイリストからRSSを作成します。初回はダウンロード完了を待ちます。コピーできない場合はURL欄を長押ししてコピーしてください。
+5. Podcast →「ライブラリ」→「…」→「番組をURLで追加」にRSS URLを貼り付けてフォローします。
 
-RSSと音声のURLは `--base-url` で固定されます。HTTPは明示設定したプライベートIPv4・ループバックのみ許可し、Vercel上ではHTTPSに限定します。LAN用URLを外出先から利用することはできません。PCの停止・スリープ中も取得できませんが、Podcastアプリにダウンロード済みの音声は端末で再生できます。IPアドレスが変わると購読先も変わるため、継続利用時はルーターでDHCP予約を設定してください。
+検証用プレイリストは `https://www.youtube.com/playlist?list=PLF119azDj_Og`、購読URLは `http://192.168.1.4:3000/feed/PLF119azDj_Og.xml` です。中継型から移行してもRSS URL・音声URL・エピソードGUIDは変わりません。
 
-サーバーは起動したPowerShellでCtrl+Cを押して停止します。実験後に追加規則を削除する場合は、管理者PowerShellで実行します。
+PCの停止・スリープ中や、外出先では取得できません。PCのIPアドレスが変わると購読先も変わるため、継続利用時はルーターでDHCP予約を設定してください。アプリにダウンロード済みの音声は端末から再生できます。
+
+サーバーは起動したPowerShellでCtrl+Cを押して停止します。実験後に受信規則を削除する場合は、管理者PowerShellで実行します。
 
 ```powershell
 Remove-NetFirewallRule -Name 'YP2PC-LAN-3000'
 ```
 
-`dev.py` は家庭内実験用の簡易HTTPサーバーです。インターネットへ公開する運用には適しません。
+## 保存と配信
 
-## Vercelへのデプロイ
+- 既定の保存先は `.local/media/` です。音声M4A、1400×1400のJPEG画像、エピソード情報JSON、フィードの最新スナップショットを保存します。Gitには含めません。
+- 初回に音声全体を取得し、バイト数とM4Aヘッダーを確認してから公開します。途中の `.part` ファイルは配信しません。再起動後も完成ファイルを再利用します。
+- 音声のHEAD・単一Range・206・416・ETag・If-Rangeに対応します。シーク位置からローカルファイルを直接読み出します。
+- サムネイルは動画IDに対応するYouTube画像を取得し、文字などを切り落とさないよう上下または左右に余白を付けて正方形にします。RSSの各エピソードに `itunes:image` を付け、番組画像には画像のある先頭エピソードを使います。画像取得が失敗しても音声は掲載します。
+- プレイリストの先頭から最大10件を対象にし、フィード取得時に一覧を更新します（メモリキャッシュ5分）。新しい動画はYouTube側で先頭に並べてください。常駐の定期ダウンロード処理はありません。
+- YouTubeの一覧取得に失敗した場合は、保存済みのフィードと音声を返します。正常に取得した一覧に含まれなくなった動画はRSSから外れますが、保存ファイルを自動削除しません。
+- 既定の保存上限は5GiB、1件の音声上限は1GiBです。上限時は新規取得を止め、既存ファイルを保持します。容量確認にはファイルと画像用の余裕を含めます。
+- ファイルを整理する場合はサーバーを停止し、不要な動画IDの `.m4a`・`.jpg`・`.json` をまとめて削除してください。次回の一覧取得に含まれる動画は再取得されます。
 
-1. このリポジトリをGitHubの `konto250/yp2pc` にpushし、VercelでそのリポジトリをImportします。
-2. Framework Presetは **Other**、Root Directoryはリポジトリ直下、Output Directoryは **public**。`vercel.json` のビルドコマンドを使用します。
-3. Python 3.12、Fluid computeを使用します。`requirements.txt` によりyt-dlpを導入します。Denoはビルド時に公式GitHubリリースから取得し、SHA-256を照合して同梱します。APIキー、Blob、外部サーバーは不要です。
-4. 本番URLを `APP_BASE_URL=https://your-project.vercel.app` に設定し、再デプロイします。未設定時は `VERCEL_PROJECT_PRODUCTION_URL`、次に `VERCEL_URL` を使います。購読URLの継続性のため固定の本番URL設定を推奨します。
-5. 本番ページを開き、プレイリストを入力して、RSS取得と試聴を確認します。本番フィードと音声URLはPodcastアプリから認証なしでアクセスできる必要があります。Deployment Protectionが有効なら本番公開範囲を確認してください。
+Apple Podcastは画像をキャッシュする場合があります。更新後はフィードを再読み込みし、エピソード詳細や再生画面で確認してください。サーバーのRSS更新とアプリ側の表示更新は同時ではありません。
 
-`vercel.json` は1リクエスト最大300秒です。先頭10件・最大3並列のメタデータ取得、音声中継は約265秒を上限にしています。遅い通信では音声転送が途中で終了することがあります。音声を保存しない場合もVercelの実行時間・転送量は消費します。公開サービスとしての大量利用には向きません。
+## 設定
+
+`.env.example` は説明用です。`.env`を自動読み込みしないため、PowerShellの環境変数か起動引数で指定します。
 
 | 環境変数 | 用途 |
 | --- | --- |
-| `APP_BASE_URL` | RSSと音声URLに使う固定HTTPSオリジン。LAN実験ではHTTPのプライベートIPv4も可。パスは含めません。 |
-| `MAX_EPISODES` | 先頭から取得する件数。既定10、1～10。 |
-| `YTDLP_BIN` | ローカルのyt-dlp実行ファイル。Vercelでは通常不要。 |
+| `APP_BASE_URL` | iPadから接続する固定オリジン。例：`http://192.168.1.4:3000`。HTTPSも使用可。パスは含めません。 |
+| `MEDIA_DIR` | 保存ディレクトリ。既定はプロジェクトの `.local/media`。 |
+| `MEDIA_MAX_BYTES` | 保存上限のバイト数。既定5368709120（5GiB）。 |
+| `MAX_EPISODES` | 一覧の先頭から取得する件数。既定10、1～10。 |
+| `YTDLP_BIN` | 既存のyt-dlp実行ファイルへのパス。未指定ならPythonパッケージ、次にPATH上のコマンドを使用。 |
+
+起動時は `--host`、`--port`、`--base-url` を指定できます。LAN用HTTPは明示設定したプライベートIPv4・ループバックに限定します。
 
 ## 検証
 
-外部通信なしのテスト：
-
 ```powershell
-python -m unittest discover -s tests -v
+python -X utf8 -m unittest discover -s tests -v
 node --check public/app.js
+python -X utf8 scripts/smoke.py --base http://192.168.1.4:3000
 ```
 
-サーバー起動後、実プレイリストでRSSと音声の先頭・末尾の部分取得を検証します。音声全体は保存しません。
+スモーク検証は実プレイリストを取得し、RSS、音声HEAD、先頭・中間・末尾の部分取得、画像を確認します。初回は音声と画像がサーバーに保存されます。
 
-```powershell
-python scripts/smoke.py
-python scripts/smoke.py --base https://your-project.vercel.app
-```
-
-既定の検証対象は `https://www.youtube.com/playlist?list=PLF119azDj_Og` です。別の対象は `--playlist` で指定します。
+2026-11-10に旧中継型でiPadのRSS登録・再生を利用者が確認済みです。保存型では同じ音声26,592,765バイトと1400×1400のJPEGを保存し、RSS画像タグ・画像配信・音声HEAD・先頭/中間/末尾のRange取得を確認しました。PC上から測定した1024バイトのRange応答は約2～15msで、FFmpegで20分位置へシークしてから10秒デコードする検証にも成功しています。保存型への切替後のiPad上の操作感・画像表示は別途確認します。
 
 ## 制約
 
-- 非公開、ログイン必須、年齢制限、ライブ配信中などの動画には対応しません。Cookieの収集やアクセス制限回避は実装していません。
-- 対応するHTTPS M4A音声がない場合は、その動画を掲載しません。推測したファイルサイズやYouTubeの視聴ページURLを音声URLとして返しません。
-- 元動画の変更・削除やYouTubeの仕様変更の影響を受けます。取得が壊れた場合はyt-dlpを更新して再デプロイします。依存定義は2026年版の範囲で更新を許可しています。
-- 複数Rangeの同時要求には対応しません。音声配信リクエストはVercelを通ります。
-- 本サービスにはログイン・永続的なユーザー別制限がありません。運用規模に応じてVercel側でアクセス・費用を管理してください。
+- 公開動画のうちHTTPS M4Aを取得できるものが対象です。非公開・ログイン必須・年齢制限・ライブ配信中には対応しません。
+- 初回のYouTube取得は送信元IPの制限や仕様変更の影響を受けます。yt-dlpの更新が必要になる場合があります。
+- 初回は音声全体を保存するため時間がかかります。個人向けの単一プロセスとしてダウンロードは直列化しています。複数プロセスや多数利用者向けのキュー・認証・容量管理UIはありません。
+- `dev.py`は家庭内実験用の簡易HTTPサーバーです。インターネット公開・本番運用の構成は未確定です。
+- PC再起動時の自動起動は未設定です。
+- カタログ申請ではなく、アプリへのURL直接登録用です。`itunes:block=Yes`、`itunes:explicit=true`を設定します。
 - 利用できる権利・許可のあるコンテンツを対象にしてください。
 
 ## 参考資料
 
-- [Apple PodcastsのRSS要件](https://podcasters.apple.com/support/823-podcast-requirements)
-- [Vercel Python Functions](https://vercel.com/docs/functions/runtimes/python/api-directory)
-- [Vercel Functionsの実行時間](https://vercel.com/docs/functions/configuring-functions/duration)
+- [Apple PodcastのRSS要件](https://podcasters.apple.com/support/823-podcast-requirements)
+- [Apple Podcastのエピソード画像仕様](https://podcasters.apple.com/support/5516-episode-art-template)
 - [yt-dlpのJavaScript実行環境](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
-- [yt-dlpのYouTube取得制限](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)
-
-PigeonPodの方式も調査しました。PigeonPodはYouTube Data APIで動画一覧を同期し、yt-dlpで音声を事前ダウンロードして、ローカルディスクまたはS3互換ストレージから配信する構成です。本プロジェクトは保存せず都度中継する実験的な実装で、PigeonPodのコードは取り込んでいません。

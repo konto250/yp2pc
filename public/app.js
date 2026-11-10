@@ -26,7 +26,7 @@ function showFeed(data) {
   document.querySelector("#local-warning").hidden = !data.local;
   const warnings = [];
   if (data.totalCount > data.limit) warnings.push(`全${data.totalCount}件のうち先頭${data.limit}件を確認しました。`);
-  if (data.issues.length) warnings.push(`${data.issues.length}件の音声を取得できませんでした。 ${data.issues.map((issue) => `${issue.id}: ${issue.message}`).join(" ")}`);
+  if (data.issues.length) warnings.push(data.issues.map((issue) => `${issue.id}: ${issue.message}`).join(" "));
   const warning = document.querySelector("#partial-warning");
   warning.textContent = warnings.join(" ");
   warning.hidden = warnings.length === 0;
@@ -34,6 +34,16 @@ function showFeed(data) {
   list.replaceChildren();
   for (const episode of data.episodes) {
     const item = document.createElement("li");
+    if (episode.artworkUrl) {
+      const thumbnail = document.createElement("img");
+      thumbnail.src = episode.artworkUrl;
+      thumbnail.alt = `${episode.title}のサムネイル`;
+      thumbnail.className = "episode-thumbnail";
+      thumbnail.width = 120;
+      thumbnail.height = 120;
+      thumbnail.loading = "lazy";
+      item.append(thumbnail);
+    }
     const title = document.createElement("strong");
     title.textContent = episode.title;
     const meta = document.createElement("span");
@@ -48,7 +58,7 @@ function showFeed(data) {
     const message = document.createElement("p");
     message.className = "audio-message";
     message.setAttribute("role", "status");
-    audio.addEventListener("waiting", () => { message.textContent = "YouTubeから音声を取得しています…"; });
+    audio.addEventListener("waiting", () => { message.textContent = "音声を読み込んでいます…"; });
     audio.addEventListener("playing", () => { message.textContent = ""; });
     audio.addEventListener("error", () => { message.textContent = "音声を再生できませんでした。YouTube側の制限または接続エラーの可能性があります。再度RSSを作成してお試しください。"; });
     item.append(title, meta, audio, message);
@@ -72,7 +82,7 @@ form.addEventListener("submit", async (event) => {
   result.hidden = true;
   form.setAttribute("aria-busy", "true");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 285000);
+  const timer = setTimeout(() => controller.abort(), 3600000);
   try {
     const response = await fetch("/api/feeds", {
       method: "POST", headers: { "Content-Type": "application/json" },

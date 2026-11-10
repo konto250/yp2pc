@@ -1,18 +1,18 @@
-"""Vercel Python FunctionsとローカルHTTPサーバーの共通ハンドラー。"""
+"""セルフホスト用のRSS・保存済み音声・画像配信ハンドラー。"""
 
 import hashlib
 import json
 import logging
 import re
-import time
 import traceback
+from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 
 from yp2pc.core import AppError, PLAYLIST_ID, base_url, playlist_id, rss_document, video_id
-from yp2pc.youtube import audio_source, build_feed, open_media
+from yp2pc.youtube import build_feed
+from yp2pc import storage
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
 RANGE = re.compile(r"bytes=(?:[0-9]{1,18}-[0-9]{0,18}|-[0-9]{1,18})\Z")
@@ -49,7 +49,7 @@ class handler(BaseHTTPRequestHandler):
                 origin = base_url(self.headers.get("Host"))
                 supplied_origin = self.headers.get("Origin")
                 if supplied_origin and supplied_origin != origin:
-                    # プレビュー環境でも同じオリジンの画面からの操作は許可します。
+                    # LAN上の同じオリジンの画面からの操作は許可します。
                     if urlsplit(supplied_origin).netloc != self.headers.get("Host"):
                         raise AppError("この画面から再試行してください。", 403, "invalid_origin")
                 if self.headers.get_content_type() != "application/json":
@@ -70,6 +70,8 @@ class handler(BaseHTTPRequestHandler):
                 result = {**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
                           "playlistUrl": "https://www.youtube.com/playlist?list=" + feed["id"],
                           "local": origin.startswith("http://")}
+                result["episodes"] = [{**episode, "artworkUrl": origin + "/artwork/" + episode["id"] + ".jpg" if episode.get("artwork") else None}
+                                      for episode in feed["episodes"]]
                 return self.json_response(200, result)
             if path.startswith("/feed/") and path.endswith(".xml"):
                 if self.command not in {"GET", "HEAD"}:
@@ -88,6 +90,9 @@ class handler(BaseHTTPRequestHandler):
                 if self.command not in {"GET", "HEAD"}:
                     return self.respond(405, b"", {"Allow": "GET, HEAD"})
                 return self.stream_audio(video_id(path[len("/audio/"):-4]))
+            if path.startswith("/artwork/") and path.endswith(".jpg") and self.command in {"GET", "HEAD"}:
+                identifier = video_id(path[len("/artwork/"):-4])
+                return self.serve_file(storage.media_path(identifier, ".jpg"), "image/jpeg")
             raise AppError("ページが見つかりません。", 404, "not_found")
         except AppError as error:
             if not self.started:
@@ -119,60 +124,61 @@ class handler(BaseHTTPRequestHandler):
                             {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"})
 
     def stream_audio(self, identifier):
-        byte_range = self.headers.get("Range")
-        if byte_range and not RANGE.fullmatch(byte_range):
-            raise AppError("単一のバイト範囲を指定してください。", 416, "invalid_range")
-        deadline = time.monotonic() + 265
-        for attempt in range(2):
-            source = audio_source(identifier, refresh=attempt > 0)
-            try:
-                # YouTubeがHEADを拒否しても、GETの範囲確認からHEADを構成できます。
-                probe_range = byte_range or ("bytes=0-0" if self.command == "HEAD" else None)
-                upstream = open_media(source, "GET", probe_range)
-                break
-            except HTTPError as error:
-                code = error.code
-                content_range = error.headers.get("Content-Range")
-                error.close()
-                if code in {401, 403, 410} and attempt == 0:
-                    continue
-                if code == 416:
-                    headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
-                    if content_range:
-                        headers["Content-Range"] = content_range
-                    return self.respond(416, b"", headers)
-                raise AppError("YouTubeの音声を取得できませんでした。時間をおいて再試行してください。", 502, "audio_unavailable") from None
-            except (URLError, TimeoutError):
-                raise AppError("音声配信元への接続がタイムアウトしました。", 504, "audio_timeout") from None
-        with upstream:
-            if upstream.status not in {200, 206}:
-                raise AppError("音声配信元の応答を確認できませんでした。", 502, "invalid_upstream")
-            # 最初のデータを読めることを確かめてからレスポンスを開始します。
-            chunk = upstream.read(64 * 1024) if self.command != "HEAD" else b""
-            is_head_probe = self.command == "HEAD" and not byte_range and upstream.status == 206
-            self.send_response(200 if is_head_probe else upstream.status)
-            self.send_header("Content-Type", "audio/x-m4a")
-            self.send_header("Content-Disposition", 'inline; filename="' + identifier + '.m4a"')
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Accept-Ranges", "bytes")
+        saved = storage.read_episode(identifier) or storage.prepare_episode(identifier)
+        return self.serve_file(storage.media_path(identifier), "audio/x-m4a", saved["sha256"])
+
+    def serve_file(self, path, media_type, digest=None):
+        try:
+            source = path.open("rb")
+        except FileNotFoundError:
+            raise AppError("保存ファイルが見つかりません。", 404, "not_found") from None
+        with source:
+            stat = path.stat()
+            size = stat.st_size
+            etag = '"' + (digest or f"{stat.st_mtime_ns:x}-{size:x}") + '"'
+            modified = formatdate(stat.st_mtime, usegmt=True)
+            headers = {"Content-Type": media_type, "Accept-Ranges": "bytes", "ETag": etag,
+                       "Last-Modified": modified, "Cache-Control": "public, max-age=3600"}
+            if self.headers.get("If-None-Match") == etag:
+                return self.respond(304, b"", headers)
+            byte_range = self.headers.get("Range")
+            if self.headers.get("If-Range") not in {None, etag, modified}:
+                byte_range = None
+            start, end = 0, size - 1
+            if byte_range:
+                try:
+                    if not RANGE.fullmatch(byte_range):
+                        raise ValueError
+                    first, last = byte_range[6:].split("-")
+                    if first:
+                        start = int(first)
+                        end = min(int(last), end) if last else end
+                    elif int(last) > 0:
+                        start = max(0, size - int(last))
+                    else:
+                        raise ValueError
+                    if start > end or start >= size:
+                        raise ValueError
+                except ValueError:
+                    return self.respond(416, b"", {**headers, "Content-Range": f"bytes */{size}"})
+                headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+            remaining = end - start + 1
+            self.send_response(206 if byte_range else 200)
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.send_header("Content-Length", str(remaining))
             self.send_header("X-Content-Type-Options", "nosniff")
-            for name in ("Content-Length", "Content-Range", "ETag", "Last-Modified"):
-                value = upstream.headers.get(name)
-                if is_head_probe and name == "Content-Range":
-                    continue
-                if is_head_probe and name == "Content-Length":
-                    value = upstream.headers.get("Content-Range", "").rsplit("/", 1)[-1]
-                if value:
-                    self.send_header(name, value)
             self.end_headers()
             self.started = True
-            while chunk:
+            if self.command == "HEAD":
+                return
+            source.seek(start)
+            while remaining > 0:
+                chunk = source.read(min(256 * 1024, remaining))
+                if not chunk:
+                    break
                 self.wfile.write(chunk)
-                self.wfile.flush()
-                if time.monotonic() > deadline:
-                    self.close_connection = True
-                    return
-                chunk = upstream.read(64 * 1024)
+                remaining -= len(chunk)
 
     def log_message(self, format, *args):
         # URLのクエリーや署名付き配信URLをログに残しません。
