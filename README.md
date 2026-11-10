@@ -56,8 +56,8 @@ python dev.py
 ## Vercelへのデプロイ
 
 1. このリポジトリをGitHubの `konto250/yp2pc` にpushし、VercelでそのリポジトリをImportします。
-2. Framework Presetは **Other**、Root Directoryはリポジトリ直下、Output Directoryは **public**。ビルドコマンドは不要です。
-3. Python 3.12、Fluid computeを使用します。`requirements.txt` によりyt-dlpとDenoが導入されます。APIキー、Blob、外部サーバーは不要です。
+2. Framework Presetは **Other**、Root Directoryはリポジトリ直下、Output Directoryは **public**。`vercel.json` のビルドコマンドを使用します。
+3. Python 3.12、Fluid computeを使用します。`requirements.txt` によりyt-dlpを導入します。Denoはビルド時に公式GitHubリリースから取得し、SHA-256を照合して同梱します。APIキー、Blob、外部サーバーは不要です。
 4. 本番URLを `APP_BASE_URL=https://your-project.vercel.app` に設定し、再デプロイします。未設定時は `VERCEL_PROJECT_PRODUCTION_URL`、次に `VERCEL_URL` を使います。購読URLの継続性のため固定の本番URL設定を推奨します。
 5. 本番ページを開き、プレイリストを入力して、RSS取得と試聴を確認します。本番フィードと音声URLはPodcastアプリから認証なしでアクセスできる必要があります。Deployment Protectionが有効なら本番公開範囲を確認してください。
 

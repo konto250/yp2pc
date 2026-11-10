@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -94,7 +95,8 @@ class handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             self.close_connection = True
         except Exception as error:
-            logging.error("リクエスト処理に失敗しました: %s", type(error).__name__)
+            logging.error("リクエスト処理に失敗しました: %s\n%s", type(error).__name__,
+                          "".join(traceback.format_tb(error.__traceback__)))
             if not self.started:
                 self.json_response(500, {"error": "処理に失敗しました。時間をおいて再試行してください。", "code": "internal_error"})
             self.close_connection = True

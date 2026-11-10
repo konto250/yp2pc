@@ -2,9 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "outputDirectory": "public",
+  "buildCommand": "python3 scripts/prepare_runtime.py",
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
+      "includeFiles": "vendor/**",
       "excludeFiles": "{tests/**,scripts/**,.local/**,.venv/**,README.md}"
     }
   },

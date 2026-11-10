@@ -11,6 +11,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -68,7 +69,10 @@ def extract(url, extra, timeout=40):
         "--dump-single-json", "--socket-timeout", "10", "--retries", "0",
         "--extractor-retries", "0", "--no-warnings", "--extractor-args", "youtube:lang=ja"
     ]
-    if importlib.util.find_spec("deno"):
+    bundled_deno = Path(__file__).resolve().parents[1] / "vendor" / "deno"
+    if bundled_deno.is_file():
+        args += ["--js-runtimes", "deno:" + str(bundled_deno)]
+    elif importlib.util.find_spec("deno"):
         import deno
         args += ["--js-runtimes", "deno:" + str(deno.find_deno_bin())]
     elif shutil.which("node"):
@@ -78,7 +82,8 @@ def extract(url, extra, timeout=40):
     try:
         result = subprocess.run(args + extra + ["--", url], capture_output=True,
                                 text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                                env={**os.environ, "DENO_DIR": os.path.join(os.environ.get("TMPDIR", os.environ.get("TEMP", "/tmp")), "yp2pc-deno")})
+                                env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path),
+                                     "DENO_DIR": os.path.join(os.environ.get("TMPDIR", os.environ.get("TEMP", "/tmp")), "yp2pc-deno")})
     except subprocess.TimeoutExpired:
         raise AppError("YouTubeからの取得がタイムアウトしました。時間をおいて再試行してください。", 504, "youtube_timeout") from None
     except OSError:
