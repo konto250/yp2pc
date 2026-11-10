@@ -4,6 +4,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -93,6 +94,9 @@ def extract(url, extra, timeout=40):
         extract_slots.release()
     if result.returncode:
         error = result.stderr.lower()
+        # 原因調査用に内部ログを残します。署名付きURLは必ず伏せます。
+        safe_error = re.sub(r"https?://\S+", "[URL]", result.stderr)
+        logging.warning("yt-dlpの取得失敗: %s", safe_error[-1600:])
         if "no module named" in error or "unrecognized arguments" in error:
             logging.error("音声取得ツールの依存または引数が不正です。終了コード=%s", result.returncode)
             raise AppError("音声取得ツールの実行環境に問題があります。サーバー設定を確認してください。", 503, "configuration_error")
