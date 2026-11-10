@@ -12,12 +12,14 @@ from urllib.parse import urlsplit
 
 from yp2pc.core import AppError, PLAYLIST_ID, base_url, playlist_id, rss_document, video_id
 from yp2pc.youtube import build_feed
-from yp2pc import storage
+from yp2pc import storage, auth
 from yp2pc.media import MEDIA_VERSION
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
 RANGE = re.compile(r"bytes=(?:[0-9]{1,18}-[0-9]{0,18}|-[0-9]{1,18})\Z")
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
+          "/login": ("login.html", "text/html; charset=utf-8"),
+          "/login.js": ("login.js", "text/javascript; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
           "/style.css": ("style.css", "text/css; charset=utf-8"),
           "/favicon.svg": ("favicon.svg", "image/svg+xml"),
@@ -34,6 +36,9 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.dispatch()
 
+    def do_DELETE(self):
+        self.dispatch()
+
     def do_OPTIONS(self):
         self.respond(405, b"", {"Allow": "GET, HEAD, POST"})
 
@@ -41,49 +46,71 @@ class handler(BaseHTTPRequestHandler):
         self.started = False
         try:
             path = urlsplit(self.path).path
+            if path == "/health" and self.command in {"GET", "HEAD"}:
+                return self.json_response(200, {"status": "ok"})
             if path in STATIC and self.command in {"GET", "HEAD"}:
+                logged_in = auth.authenticated(self.headers.get("Cookie"))
+                if path == "/" and not logged_in:
+                    return self.respond(302, b"", {"Location": "/login", "Cache-Control": "no-store"})
+                if path == "/login" and logged_in:
+                    return self.respond(302, b"", {"Location": "/", "Cache-Control": "no-store"})
                 name, media_type = STATIC[path]
-                return self.respond(200, (PUBLIC / name).read_bytes(), {"Content-Type": media_type})
+                return self.respond(200, (PUBLIC / name).read_bytes(), {"Content-Type": media_type, "Cache-Control": "private, no-store"})
+            if path == "/api/login" and self.command == "POST":
+                origin = self.check_origin()
+                body = self.read_json()
+                if not auth.verify_password(body.get("password")):
+                    raise AppError("パスワードが正しくありません。", 401, "invalid_password")
+                return self.json_response(200, {"ok": True}, {"Set-Cookie": auth.cookie_header(auth.create_session(), origin.startswith("https://"))})
+            if path == "/api/logout" and self.command == "POST":
+                origin = self.check_origin()
+                auth.revoke(self.headers.get("Cookie"))
+                return self.json_response(200, {"ok": True}, {"Set-Cookie": auth.cookie_header("", origin.startswith("https://"))})
             if path == "/api/feeds":
-                if self.command != "POST":
-                    return self.respond(405, b"", {"Allow": "POST"})
+                self.require_admin()
                 origin = base_url(self.headers.get("Host"))
-                supplied_origin = self.headers.get("Origin")
-                if supplied_origin and supplied_origin != origin:
-                    # LAN上の同じオリジンの画面からの操作は許可します。
-                    if urlsplit(supplied_origin).netloc != self.headers.get("Host"):
-                        raise AppError("この画面から再試行してください。", 403, "invalid_origin")
-                if self.headers.get_content_type() != "application/json":
-                    raise AppError("JSON形式で送信してください。", 415)
-                try:
-                    size = int(self.headers.get("Content-Length", "0"))
-                except ValueError:
-                    raise AppError("リクエストサイズが正しくありません。") from None
-                if size <= 0 or size > 4096:
-                    raise AppError("リクエストが大きすぎるか空です。", 413)
-                try:
-                    body = json.loads(self.rfile.read(size))
-                except (ValueError, UnicodeError):
-                    raise AppError("入力を読み取れませんでした。") from None
-                if not isinstance(body, dict):
-                    raise AppError("入力形式が正しくありません。")
-                feed = build_feed(playlist_id(body.get("url")))
+                if self.command == "GET":
+                    feeds = [{**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml"} for feed in storage.list_feeds()]
+                    return self.json_response(200, {"feeds": feeds})
+                if self.command != "POST":
+                    return self.respond(405, b"", {"Allow": "GET, POST"})
+                self.check_origin()
+                body = self.read_json()
+                with storage.feed_operation:
+                    feed = build_feed(playlist_id(body.get("url")))
+                    storage.save_feed(feed)
                 result = {**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
                           "playlistUrl": "https://www.youtube.com/playlist?list=" + feed["id"],
                           "local": origin.startswith("http://")}
                 result["episodes"] = [{**episode, "artworkUrl": origin + "/artwork/" + episode["id"] + ".jpg" if episode.get("artwork") else None}
                                       for episode in feed["episodes"]]
                 return self.json_response(200, result)
+            if path.startswith("/api/feeds/"):
+                self.require_admin()
+                if self.command != "DELETE":
+                    return self.respond(405, b"", {"Allow": "DELETE"})
+                self.check_origin()
+                identifier = path[len("/api/feeds/"):]
+                if not PLAYLIST_ID.fullmatch(identifier):
+                    raise AppError("フィードが見つかりません。", 404, "not_found")
+                body = self.read_json()
+                remove_media = body.get("removeMedia", True)
+                if not isinstance(remove_media, bool):
+                    raise AppError("削除オプションが正しくありません。")
+                return self.json_response(200, storage.delete_feed(identifier, remove_media))
             if path.startswith("/feed/") and path.endswith(".xml"):
                 if self.command not in {"GET", "HEAD"}:
                     return self.respond(405, b"", {"Allow": "GET, HEAD"})
                 identifier = path[len("/feed/"):-4]
                 if not PLAYLIST_ID.fullmatch(identifier):
                     raise AppError("フィードが見つかりません。", 404, "not_found")
-                content = rss_document(build_feed(identifier), base_url(self.headers.get("Host")))
+                with storage.feed_operation:
+                    if not storage.registered(identifier):
+                        raise AppError("未登録または削除済みのフィードです。", 404, "not_found")
+                    content = rss_document(build_feed(identifier), base_url(self.headers.get("Host")))
                 etag = '"' + hashlib.sha256(content).hexdigest() + '"'
                 headers = {"Content-Type": "application/rss+xml; charset=utf-8", "ETag": etag,
-                           "Cache-Control": "public, max-age=300, s-maxage=300"}
+                           "Cache-Control": "public, max-age=0, must-revalidate"}
                 if self.headers.get("If-None-Match") == etag:
                     return self.respond(304, b"", headers)
                 return self.respond(200, content, headers)
@@ -107,6 +134,34 @@ class handler(BaseHTTPRequestHandler):
                 self.json_response(500, {"error": "処理に失敗しました。時間をおいて再試行してください。", "code": "internal_error"})
             self.close_connection = True
 
+    def require_admin(self):
+        if not auth.authenticated(self.headers.get("Cookie")):
+            raise AppError("ログインが必要です。", 401, "login_required")
+
+    def check_origin(self):
+        origin = base_url(self.headers.get("Host"))
+        supplied = self.headers.get("Origin")
+        if supplied and supplied != origin and supplied != "http://" + (self.headers.get("Host") or ""):
+            raise AppError("この画面から再試行してください。", 403, "invalid_origin")
+        return origin
+
+    def read_json(self):
+        if self.headers.get_content_type() != "application/json":
+            raise AppError("JSON形式で送信してください。", 415)
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise AppError("リクエストサイズが正しくありません。") from None
+        if size <= 0 or size > 4096:
+            raise AppError("リクエストが大きすぎるか空です。", 413)
+        try:
+            body = json.loads(self.rfile.read(size))
+        except (ValueError, UnicodeError):
+            raise AppError("入力を読み取れませんでした。") from None
+        if not isinstance(body, dict):
+            raise AppError("入力形式が正しくありません。")
+        return body
+
     def respond(self, status, content, headers=None):
         self.send_response(status)
         for name, value in (headers or {}).items():
@@ -115,18 +170,21 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(content)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
         self.end_headers()
         self.started = True
         if self.command != "HEAD" and status != 304:
             self.wfile.write(content)
 
-    def json_response(self, status, value):
+    def json_response(self, status, value, headers=None):
         return self.respond(status, json.dumps(value, ensure_ascii=False).encode("utf-8"),
-                            {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"})
+                            {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", **(headers or {})})
 
     def stream_audio(self, identifier):
         saved = storage.read_episode(identifier)
-        if not saved or saved.get("media_version") != MEDIA_VERSION:
+        if not saved:
+            raise AppError("保存済み音声が見つかりません。", 404, "not_found")
+        if saved.get("media_version") != MEDIA_VERSION:
             saved = storage.prepare_episode(identifier)
         return self.serve_file(storage.media_path(identifier), "audio/x-m4a", saved["sha256"])
 

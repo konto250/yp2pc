@@ -7,6 +7,7 @@ services:
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     environment:
       APP_BASE_URL: "${APP_BASE_URL:?APP_BASE_URLを.envに設定してください}"
+      ADMIN_PASSWORD_HASH: "${ADMIN_PASSWORD_HASH:?管理パスワードのハッシュを.envに設定してください}"
       MEDIA_DIR: /data
       MEDIA_MAX_BYTES: "${MEDIA_MAX_BYTES:-5368709120}"
       MAX_EPISODES: "${MAX_EPISODES:-10}"

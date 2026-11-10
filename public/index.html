@@ -13,7 +13,7 @@
 <body>
   <header class="site-header">
     <a class="brand" href="/" aria-label="YP2PC ホーム"><img src="/favicon.svg" width="35" height="35" alt=""><span>yp2pc<span class="brand-dot">.</span></span></a>
-    <a class="help-link" href="#how-to">使い方 <span aria-hidden="true">↗</span></a>
+    <div class="header-actions"><a class="help-link" href="#feed-management">フィード管理</a><button id="logout-button" class="secondary" type="button">ログアウト</button></div>
   </header>
   <main>
     <section class="hero" aria-labelledby="page-title">
@@ -21,7 +21,7 @@
         <div class="eyebrow"><span></span> YouTube から、Podcast へ</div>
         <h1 id="page-title">プレイリストを、<br><em>耳で楽しむ。</em></h1>
         <p class="intro">お気に入りのトークも、学びの時間も。<br>プレイリストのURLを入れるだけで、<br class="mobile-break">いつものPodcastアプリにつながります。</p>
-        <div class="hero-tags"><span>アカウント不要</span><span>音声を保存して配信</span><span>RSSで購読</span></div>
+        <div class="hero-tags"><span>管理者ログイン済み</span><span>音声を保存して配信</span><span>RSSで購読</span></div>
       </div>
       <div class="sound-art" aria-hidden="true">
         <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
@@ -54,6 +54,14 @@
       <div class="result-actions"><a id="rss-link" target="_blank" rel="noopener">RSSを開く ↗</a><a id="youtube-link" target="_blank" rel="noopener">元のプレイリスト ↗</a></div>
       <details class="listen"><summary>エピソードを確認・試聴する <span id="episode-count"></span></summary><ol id="episodes"></ol></details>
       <div class="apple-note"><strong>Apple Podcastsへの追加</strong><p>「ライブラリ」のメニューから「URLで番組を追加」を選び、このRSS URLを貼り付けてください。Macでは「ファイル」→「URLで番組を追加」を使います。</p><small>アプリへの直接購読用です。Apple Podcastsの公開カタログへの掲載を保証するものではありません。</small></div>
+    </section>
+
+    <section id="feed-management" class="result" aria-labelledby="management-title">
+      <div class="management-heading"><h2 id="management-title">登録済みフィード</h2><button id="refresh-feeds" class="secondary" type="button">一覧を更新</button></div>
+      <p class="input-hint">削除したフィードは配信を停止します。購読中の端末に保存済みの音声は削除されません。</p>
+      <label class="delete-option"><input id="remove-media" type="checkbox" checked>ほかのフィードで使っていない保存音声・画像も削除する</label>
+      <p id="management-status" role="status" aria-live="polite"></p>
+      <ul id="managed-feeds" class="managed-feeds"></ul>
     </section>
 
     <section id="how-to" class="how-to" aria-labelledby="how-title">

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理ログイン — YP2PC</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <main class="login-page">
+    <a class="brand" href="/"><img src="/favicon.svg" width="35" height="35" alt=""><span>yp2pc<span class="brand-dot">.</span></span></a>
+    <section class="converter">
+      <h1>フィード管理</h1>
+      <p class="intro">プレイリストの追加・削除には<br>管理パスワードが必要です。</p>
+      <form id="login-form">
+        <label for="password">管理パスワード</label>
+        <input id="password" type="password" autocomplete="current-password" required maxlength="1024" autofocus>
+        <button class="primary" type="submit">ログイン</button>
+        <p id="login-error" class="error-message" role="alert" hidden></p>
+      </form>
+      <p class="input-hint">PodcastアプリからのRSS・音声の取得にはログイン不要です。</p>
+    </section>
+  </main>
+</body>
+</html>

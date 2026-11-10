@@ -16,7 +16,7 @@ from urllib.error import HTTPError
 from xml.etree import ElementTree as ET
 
 from api.index import handler
-from yp2pc import core, youtube, storage
+from yp2pc import core, youtube, storage, auth
 
 FEED = {
     "id": "PLF119azDj_Og", "title": '日本語 & <番組> "テスト"\x00', "description": "説明\nテスト",
@@ -147,8 +147,12 @@ class HttpTests(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.env = patch.dict(os.environ, {"MEDIA_DIR": self.directory.name}, clear=True)
+        self.env = patch.dict(os.environ, {"MEDIA_DIR": self.directory.name, "ADMIN_PASSWORD_HASH": auth.password_hash("test-password-123")}, clear=True)
         self.env.start()
+        auth.sessions.clear()
+        auth.attempts.clear()
+        self.cookie = auth.COOKIE + "=" + auth.create_session()
+        storage.save_feed(FEED)
         self.audio = b"12345678"
         storage.media_path("TbalaZ5EhYA").write_bytes(self.audio)
         storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), {
@@ -158,10 +162,12 @@ class HttpTests(unittest.TestCase):
         self.env.stop()
         self.directory.cleanup()
 
-    def request(self, method, path, body=None, headers=None):
+    def request(self, method, path, body=None, headers=None, authenticated=True):
         connection = HTTPConnection(*self.server.server_address, timeout=5)
         try:
-            connection.request(method, path, body, headers or {})
+            request_headers = {"Cookie": self.cookie} if authenticated else {}
+            request_headers.update(headers or {})
+            connection.request(method, path, body, request_headers)
             response = connection.getresponse()
             return response.status, dict(response.getheaders()), response.read()
         finally:
@@ -188,7 +194,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(headers["Cache-Control"], "no-store")
 
     def test_wrong_method_json_and_large_request(self):
-        self.assertEqual(self.request("GET", "/api/feeds")[0], 405)
+        self.assertEqual(self.request("HEAD", "/api/feeds")[0], 405)
         self.assertEqual(self.request("POST", "/api/feeds", "{}")[0], 415)
         headers = {"Content-Type": "application/json"}
         self.assertEqual(self.request("POST", "/api/feeds", "[]", headers)[0], 400)
@@ -243,6 +249,74 @@ class HttpTests(unittest.TestCase):
         storage.media_path("TbalaZ5EhYA", ".jpg").write_bytes(b"jpeg-data")
         status, headers, body = self.request("GET", path)
         self.assertEqual((status, headers["Content-Type"], body), (200, "image/jpeg", b"jpeg-data"))
+
+    def test_admin_screen_and_mutations_require_login(self):
+        status, headers, _ = self.request("GET", "/", authenticated=False)
+        self.assertEqual((status, headers["Location"]), (302, "/login"))
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(self.request("GET", "/login", authenticated=False)[0], 200)
+        for method, path in [("GET", "/api/feeds"), ("POST", "/api/feeds"), ("DELETE", "/api/feeds/PLF119azDj_Og")]:
+            self.assertEqual(self.request(method, path, authenticated=False)[0], 401)
+        self.assertEqual(self.request("GET", "/")[0], 200)
+
+    def test_public_feed_audio_and_artwork_do_not_require_login(self):
+        storage.media_path("TbalaZ5EhYA", ".jpg").write_bytes(b"jpeg-data")
+        with patch("api.index.build_feed", return_value=FEED):
+            self.assertEqual(self.request("GET", "/feed/PLF119azDj_Og.xml", authenticated=False)[0], 200)
+        self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a", authenticated=False)[0], 200)
+        self.assertEqual(self.request("GET", "/artwork/TbalaZ5EhYA.jpg", authenticated=False)[0], 200)
+
+    def test_login_logout_and_forged_or_expired_cookie(self):
+        headers = {"Content-Type": "application/json"}
+        self.assertEqual(self.request("POST", "/api/login", json.dumps({"password": "wrong"}), headers, False)[0], 401)
+        with patch.dict(os.environ, {"APP_BASE_URL": "https://podcast.example"}):
+            status, reply, _ = self.request("POST", "/api/login", json.dumps({"password": "test-password-123"}), headers, False)
+        self.assertEqual(status, 200)
+        cookie = reply["Set-Cookie"]
+        for flag in ["HttpOnly", "SameSite=Strict", "Secure", "Max-Age=43200"]:
+            self.assertIn(flag, cookie)
+        session = {"Cookie": cookie.split(";", 1)[0]}
+        self.assertEqual(self.request("GET", "/api/feeds", headers=session, authenticated=False)[0], 200)
+        self.assertEqual(self.request("POST", "/api/logout", headers=session, authenticated=False)[0], 200)
+        self.assertEqual(self.request("GET", "/api/feeds", headers=session, authenticated=False)[0], 401)
+        self.assertEqual(self.request("GET", "/api/feeds", headers={"Cookie": auth.COOKIE + "=" + "a" * 43}, authenticated=False)[0], 401)
+        key = auth.session_key(self.cookie)
+        auth.sessions[key] = (0, os.environ["ADMIN_PASSWORD_HASH"])
+        self.assertEqual(self.request("GET", "/api/feeds")[0], 401)
+
+    def test_login_configuration_and_rate_limit(self):
+        headers = {"Content-Type": "application/json"}
+        with patch.dict(os.environ, {"ADMIN_PASSWORD_HASH": ""}):
+            self.assertEqual(self.request("POST", "/api/login", '{"password":"test"}', headers, False)[0], 503)
+        for _ in range(10):
+            self.assertEqual(self.request("POST", "/api/login", '{"password":"wrong"}', headers, False)[0], 401)
+        self.assertEqual(self.request("POST", "/api/login", '{"password":"wrong"}', headers, False)[0], 429)
+
+    def test_delete_feed_and_unused_media_cannot_be_regenerated_publicly(self):
+        storage.media_path("TbalaZ5EhYA", ".jpg").write_bytes(b"jpeg-data")
+        youtube.cache.put("feed:PLF119azDj_Og:10", FEED, 300)
+        status, _, body = self.request("DELETE", "/api/feeds/PLF119azDj_Og", "{}", {"Content-Type": "application/json"})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["removedFiles"], 3)
+        self.assertIsNone(youtube.cache.get("feed:PLF119azDj_Og:10"))
+        with patch("api.index.build_feed", side_effect=AssertionError("削除済みフィードは再生成禁止")), patch.object(storage, "prepare_episode", side_effect=AssertionError("未保存音声の取得は禁止")):
+            for path in ["/feed/PLF119azDj_Og.xml", "/audio/TbalaZ5EhYA.m4a", "/feed/PLnotregistered.xml", "/audio/abcdefghijk.m4a"]:
+                self.assertEqual(self.request("GET", path, authenticated=False)[0], 404)
+
+    def test_delete_preserves_shared_media_and_can_keep_files(self):
+        storage.save_feed({**FEED, "id": "PLshared12345"})
+        status, _, body = self.request("DELETE", "/api/feeds/PLF119azDj_Og", "{}", {"Content-Type": "application/json"})
+        self.assertEqual((status, json.loads(body)["removedFiles"]), (200, 0))
+        self.assertTrue(storage.media_path("TbalaZ5EhYA").is_file())
+        status, _, _ = self.request("DELETE", "/api/feeds/PLshared12345", '{"removeMedia":false}', {"Content-Type": "application/json"})
+        self.assertEqual(status, 200)
+        self.assertTrue(storage.media_path("TbalaZ5EhYA").is_file())
+
+    def test_cross_origin_delete_and_login_are_rejected(self):
+        headers = {"Content-Type": "application/json", "Origin": "https://evil.example"}
+        self.assertEqual(self.request("DELETE", "/api/feeds/PLF119azDj_Og", "{}", headers)[0], 403)
+        self.assertEqual(self.request("POST", "/api/login", '{"password":"test-password-123"}', headers, False)[0], 403)
+        self.assertTrue(storage.registered(FEED["id"]))
 
 
 if __name__ == "__main__":

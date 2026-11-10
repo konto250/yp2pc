@@ -10,6 +10,7 @@ const feedUrl = document.querySelector("#feed-url");
 const copyButton = document.querySelector("#copy-button");
 const copyStatus = document.querySelector("#copy-status");
 let copyTimer;
+let activeFeedId;
 
 function durationText(seconds) {
   if (!seconds) return "";
@@ -18,6 +19,7 @@ function durationText(seconds) {
 }
 
 function showFeed(data) {
+  activeFeedId = data.id;
   document.querySelector("#result-title").textContent = data.title;
   document.querySelector("#result-meta").textContent = `${data.author} · ${data.episodes.length}エピソード`;
   feedUrl.value = data.feedUrl;
@@ -88,10 +90,12 @@ form.addEventListener("submit", async (event) => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: input.value.trim() }), signal: controller.signal,
     });
+    if (response.status === 401) { location.replace("/login"); throw new Error("再ログインしてください。"); }
     let data;
     try { data = await response.json(); } catch { throw new Error("サーバーから応答を取得できませんでした。時間をおいて再試行してください。"); }
     if (!response.ok) throw new Error(data.error || "フィードを作成できませんでした。");
     showFeed(data);
+    await loadFeeds();
     result.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "nearest" });
   } catch (error) {
     errorBox.textContent = error.name === "AbortError" ? "取得がタイムアウトしました。時間をおいて再試行してください。" : (error.message || "接続できませんでした。");
@@ -126,3 +130,86 @@ copyButton.addEventListener("click", async () => {
     }
   }
 });
+
+const managementStatus = document.querySelector("#management-status");
+async function loadFeeds() {
+  const response = await fetch("/api/feeds");
+  if (response.status === 401) { location.replace("/login"); return; }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "一覧を取得できませんでした。");
+  const list = document.querySelector("#managed-feeds");
+  list.replaceChildren();
+  if (!data.feeds.length) managementStatus.textContent = "登録済みのフィードはありません。";
+  for (const feed of data.feeds) {
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = feed.title;
+    const count = document.createElement("span");
+    count.className = "episode-meta";
+    count.textContent = `${feed.episodeCount}エピソード`;
+    const url = document.createElement("input");
+    url.readOnly = true;
+    url.value = feed.feedUrl;
+    url.setAttribute("aria-label", `${feed.title}のRSS URL`);
+    const actions = document.createElement("div");
+    actions.className = "feed-actions";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = "URLをコピー";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(feed.feedUrl);
+        managementStatus.textContent = "RSS URLをコピーしました。";
+      } catch {
+        url.focus(); url.select(); url.setSelectionRange(0, url.value.length);
+        managementStatus.textContent = "URLを選択しました。長押しまたは端末のコピー操作でコピーしてください。";
+      }
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.textContent = "削除";
+    remove.addEventListener("click", async () => {
+      const removeMedia = document.querySelector("#remove-media").checked;
+      const detail = removeMedia ? "ほかのフィードで使っていない保存音声・画像も削除します。" : "保存音声・画像は残します。";
+      if (!confirm(`「${feed.title}」のフィードを削除しますか？\n${detail}`)) return;
+      remove.disabled = true;
+      try {
+        const response = await fetch(`/api/feeds/${encodeURIComponent(feed.id)}`, {
+          method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ removeMedia }),
+        });
+        if (response.status === 401) { location.replace("/login"); return; }
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "削除できませんでした。");
+        if (activeFeedId === feed.id) {
+          result.querySelectorAll("audio").forEach((audio) => audio.pause());
+          result.hidden = true;
+        }
+        await loadFeeds();
+        managementStatus.textContent = data.cleanupFailures.length
+          ? "フィードを削除しました。一部の保存ファイルを削除できませんでした。"
+          : `フィードを削除しました。${removeMedia ? `保存ファイル${data.removedFiles}件を削除しました。` : "保存音声・画像は残しています。"}`;
+      } catch (error) {
+        managementStatus.textContent = error.message;
+        remove.disabled = false;
+      }
+    });
+    actions.append(copy, remove);
+    item.append(title, count, url, actions);
+    list.append(item);
+  }
+}
+
+document.querySelector("#refresh-feeds").addEventListener("click", () => {
+  managementStatus.textContent = "";
+  loadFeeds().catch((error) => { managementStatus.textContent = error.message; });
+});
+document.querySelector("#logout-button").addEventListener("click", async () => {
+  try {
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (!response.ok) throw new Error("ログアウトできませんでした。");
+    location.replace("/login");
+  } catch (error) { managementStatus.textContent = error.message; }
+});
+loadFeeds().catch((error) => { managementStatus.textContent = error.message; });

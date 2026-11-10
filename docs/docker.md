@@ -13,9 +13,10 @@ git clone https://github.com/konto250/yp2pc.git
 cd yp2pc
 mkdir -p data
 cp .env.docker.example .env
+python3 scripts/set_password.py
 ```
 
-`.env` の `APP_BASE_URL` と `BIND_ADDRESS` をLinux PCのアドレスに変更します。`APP_UID` / `APP_GID` は `id -u` / `id -g` の結果に合わせます。`data/` はそのユーザーが書き込めるディレクトリを指定してください。
+出力された `ADMIN_PASSWORD_HASH=...` を `.env` に設定します。`APP_BASE_URL` と `BIND_ADDRESS` はLinux PCのアドレスに変更し、`APP_UID` / `APP_GID` は `id -u` / `id -g` の結果に合わせます。`data/` はそのユーザーが書き込めるディレクトリを指定してください。
 
 ```bash
 docker compose config --quiet
@@ -51,7 +52,7 @@ docker compose up -d
 
 公開後の購読URLは `https://podcast.example.com/feed/PLF119azDj_Og.xml` です。Windows PCの旧URLからホスト名が変わるため、iPadでは新しいURLで番組を追加します。エピソードのGUIDは維持します。
 
-PodcastアプリがRSS・音声・画像を直接取得するため、ブラウザでのログインを要求するCloudflare Accessの画面がこれらのURLに表示されると利用できません。
+PodcastアプリがRSS・音声・画像を直接取得するため、Cloudflare Accessでサイト全体にログインを要求しないでください。管理画面と追加・削除APIはアプリ自身がパスワードで保護します。
 
 ## 保存データの移行
 
@@ -93,8 +94,12 @@ yt-dlp更新が必要な場合は `docker compose build --pull --no-cache` で�
 - コンテナ：Composeプロジェクト `yp2pc` のサービス `yp2pc`
 - 既存のMisskeyが3000番を使用しているため、ホスト側は3001番
 - 初回はWindowsからソースをアーカイブ転送して配置。Git clone配置ではないため、このディレクトリでは現時点で `git pull` は使用しません。
-- Windowsの実験サーバーは切替確認用に保持。Linux版の起動はWindows PCの稼働に依存しません。
+- Windowsの旧実験サーバーは移行確認後に停止。Linux版の起動はWindows PCの稼働に依存しません。
 
-31件のテスト、保存データの引継ぎ、LAN内のRSS・音声Range・画像配信、Linuxコンテナからの新規YouTube取得とM4A補正を確認済みです。公開HTTPSの `https://podcast.example.com` でも、RSS作成・音声の先頭/中間/末尾の206応答・JPEG配信に成功しました。iPadでの新しいURLによる購読確認は別途行います。
+保存データの引継ぎ、LAN内のRSS・音声Range・画像配信、Linuxコンテナからの新規YouTube取得とM4A補正を確認済みです。公開HTTPSの `https://podcast.example.com` でも、RSS作成・音声の先頭/中間/末尾の206応答・JPEG配信に成功しました。利用者のiPadで、新しいURLによる登録・再生も確認済みです。
+
+管理画面のパスワード保護とフィード削除機能を反映済みです。38件の回帰テストに加えて、公開HTTPSで未認証の一覧・追加・削除の401、ログイン・ログアウト、認証なしのRSS・音声・画像配信を確認しました。フィード削除時は、ほかのフィードで使っていない保存音声・画像を削除する設定が標準です。
+
+パスワードを変更する場合は `python3 scripts/set_password.py` で新しいハッシュを作り、`.env` の `ADMIN_PASSWORD_HASH` を置き換えて `docker compose up -d` を実行してください。
 
 参考：[Docker Composeの環境変数](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)、[Cloudflare Tunnelの設定](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)

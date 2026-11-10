@@ -16,6 +16,7 @@ from yp2pc.core import AppError, playlist_id, video_id
 from yp2pc.media import MEDIA_VERSION, normalize
 
 _download_lock = threading.Lock()
+feed_operation = threading.RLock()
 
 
 def root():
@@ -188,8 +189,62 @@ def prepare_episode(identifier):
 
 
 def save_feed(feed):
-    with _download_lock:
+    with feed_operation:
         write_json(root() / ("feed-" + playlist_id(feed["id"]) + ".json"), feed)
+
+
+def registered(identifier):
+    return (root() / ("feed-" + playlist_id(identifier) + ".json")).is_file()
+
+
+def list_feeds():
+    feeds = []
+    with feed_operation:
+        for path in root().glob("feed-*.json"):
+            try:
+                feed = json.loads(path.read_text(encoding="utf-8"))
+                if path.name != "feed-" + playlist_id(feed["id"]) + ".json":
+                    continue
+                feeds.append({"id": feed["id"], "title": feed["title"], "episodeCount": len(feed["episodes"]),
+                              "updated": path.stat().st_mtime})
+            except (OSError, ValueError, KeyError, TypeError, AppError):
+                continue
+    return sorted(feeds, key=lambda feed: feed["updated"], reverse=True)
+
+
+def delete_feed(identifier, remove_media=True):
+    from yp2pc.youtube import cache
+
+    identifier = playlist_id(identifier)
+    with feed_operation:
+        path = root() / ("feed-" + identifier + ".json")
+        if not path.is_file():
+            raise AppError("フィードが見つかりません。", 404, "not_found")
+        feed = json.loads(path.read_text(encoding="utf-8"))
+        retained_ids = set()
+        if remove_media:
+            # 他フィードを読み取れない場合は、誤削除を防ぐため操作を止めます。
+            for other in root().glob("feed-*.json"):
+                if other != path:
+                    document = json.loads(other.read_text(encoding="utf-8"))
+                    retained_ids.update(episode["id"] for episode in document["episodes"])
+        path.unlink()
+        for limit in range(1, 11):
+            cache.remove(f"feed:{identifier}:{limit}")
+        removed, failures = 0, []
+        if remove_media:
+            with _download_lock:
+                for episode in feed["episodes"]:
+                    if episode["id"] not in retained_ids:
+                        for suffix in (".m4a", ".jpg", ".json"):
+                            target = media_path(episode["id"], suffix)
+                            try:
+                                if target.is_file():
+                                    target.unlink()
+                                    removed += 1
+                            except OSError:
+                                failures.append(target.name)
+        return {"deleted": identifier, "removedFiles": removed, "cleanupFailures": failures}
 
 
 def load_feed(identifier):

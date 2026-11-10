@@ -9,5 +9,6 @@
 !public/**
 !scripts/
 !scripts/smoke.py
+!scripts/set_password.py
 !tests/
 !tests/*.py

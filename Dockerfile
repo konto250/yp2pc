@@ -24,10 +24,11 @@ COPY yp2pc/ ./yp2pc/
 COPY public/ ./public/
 COPY dev.py ./
 COPY scripts/smoke.py ./scripts/smoke.py
+COPY scripts/set_password.py ./scripts/set_password.py
 COPY tests/ ./tests/
 
 USER yp2pc
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:3000/', timeout=3).close()"
+    CMD python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:3000/health', timeout=3).close()"
 CMD ["python", "dev.py", "--host", "0.0.0.0", "--port", "3000"]
