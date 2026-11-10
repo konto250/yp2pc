@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5f0">
+  <meta name="description" content="YouTubeのプレイリストを、いつものPodcastアプリへ。購読用のRSSフィードURLを作成します。">
+  <title>YP2PC — プレイリストを、耳で楽しむ。</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="YP2PC ホーム"><img src="/favicon.svg" width="35" height="35" alt=""><span>yp2pc<span class="brand-dot">.</span></span></a>
+    <a class="help-link" href="#how-to">使い方 <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <div class="eyebrow"><span></span> YouTube から、Podcast へ</div>
+        <h1 id="page-title">プレイリストを、<br><em>耳で楽しむ。</em></h1>
+        <p class="intro">お気に入りのトークも、学びの時間も。<br>プレイリストのURLを入れるだけで、<br class="mobile-break">いつものPodcastアプリにつながります。</p>
+        <div class="hero-tags"><span>アカウント不要</span><span>音声の保存なし</span><span>RSSで購読</span></div>
+      </div>
+      <div class="sound-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="floating-tag video-tag"><span class="play-small">▶</span> プレイリスト</div>
+        <div class="record"><div class="record-groove"></div><div class="record-center"><svg viewBox="0 0 80 80"><path d="M15 44V35a25 25 0 0 1 50 0v9"/><rect x="10" y="37" width="13" height="25" rx="6"/><rect x="57" y="37" width="13" height="25" rx="6"/></svg></div></div>
+        <div class="floating-tag podcast-tag"><span class="mini-wave">▂▅▇▃▆▂</span> 持ち歩ける、音声に。</div>
+        <div class="spark spark-one">✦</div><div class="spark spark-two">+</div>
+      </div>
+    </section>
+
+    <section class="converter" aria-labelledby="converter-title">
+      <div class="card-top"><h2 id="converter-title">RSSフィードを作成</h2><span class="beta-badge">実験版</span></div>
+      <form id="convert-form">
+        <label for="playlist-url">YouTubeプレイリストのURL</label>
+        <div class="input-row"><div class="input-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4m-6 6-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg><input id="playlist-url" name="url" type="url" required maxlength="2048" placeholder="https://www.youtube.com/playlist?list=…" autocomplete="off" spellcheck="false" aria-describedby="input-hint"></div><button id="submit-button" class="primary" type="submit"><span>RSSを作成</span><span aria-hidden="true">→</span></button></div>
+        <p id="input-hint" class="input-hint">公開プレイリストに対応。先頭から最大10件をフィードに含めます。</p>
+      </form>
+      <div id="progress" class="progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><div><strong>プレイリストと音声形式を確認しています</strong><p>動画数によって数分かかります。この画面を開いたままお待ちください。</p></div></div>
+      <p id="error" class="error-message" role="alert" hidden></p>
+      <div class="card-foot"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v5m0-8v1"/></svg><span>再生時にYouTubeから音声を取得します。YouTube側の制限により再生できない場合があります。</span></div>
+    </section>
+
+    <section id="result" class="result" aria-labelledby="result-title" hidden>
+      <div class="result-heading"><div class="success-mark" aria-hidden="true">✓</div><div><p class="result-kicker">フィードの準備ができました</p><h2 id="result-title"></h2><p id="result-meta"></p></div></div>
+      <label for="feed-url">購読用RSS URL</label>
+      <div class="copy-row"><input id="feed-url" readonly aria-describedby="copy-status"><button id="copy-button" class="primary" type="button">URLをコピー</button></div>
+      <p id="copy-status" role="status" aria-live="polite"></p>
+      <p id="local-warning" class="notice" hidden>ローカル確認用のURLです。別の端末のApple Podcastsで購読するには、Vercelへデプロイした公開URLを使ってください。</p>
+      <p id="partial-warning" class="notice" hidden></p>
+      <div class="result-actions"><a id="rss-link" target="_blank" rel="noopener">RSSを開く ↗</a><a id="youtube-link" target="_blank" rel="noopener">元のプレイリスト ↗</a></div>
+      <details class="listen"><summary>エピソードを確認・試聴する <span id="episode-count"></span></summary><ol id="episodes"></ol></details>
+      <div class="apple-note"><strong>Apple Podcastsへの追加</strong><p>「ライブラリ」のメニューから「URLで番組を追加」を選び、このRSS URLを貼り付けてください。Macでは「ファイル」→「URLで番組を追加」を使います。</p><small>アプリへの直接購読用です。Apple Podcastsの公開カタログへの掲載を保証するものではありません。</small></div>
+    </section>
+
+    <section id="how-to" class="how-to" aria-labelledby="how-title">
+      <div class="section-heading"><h2 id="how-title">いつものアプリで、3ステップ。</h2><span>使い方</span></div>
+      <div class="steps"><article><span class="step-number">01</span><h3>プレイリストを貼る</h3><p>YouTubeの共有メニューから<br>プレイリストのURLをコピー。</p></article><article><span class="step-number">02</span><h3>RSSのURLをコピー</h3><p>「RSSを作成」を押して、<br>表示されたフィードURLをコピー。</p></article><article><span class="step-number">03</span><h3>Podcastで聴く</h3><p>アプリの「URLで番組を追加」に<br>貼り付けて、購読をスタート。</p></article></div>
+    </section>
+    <section class="faq" aria-label="利用について"><details><summary>プレイリストに動画を追加したら？</summary><p>アプリがRSSを再取得すると、最新のプレイリストを確認します。対象はプレイリストの先頭から最大10件です。新しい動画が末尾に追加される場合は、YouTube側で並び順を変更してください。反映には本サービスのキャッシュ（最大5分）とアプリの更新間隔が影響します。</p></details><details><summary>どんな動画を聴けますか？</summary><p>公開動画のうち、M4A音声を取得できるものに対応します。非公開・年齢制限・メンバー限定・配信中のライブなどには対応していません。取得できなかった動画は結果に表示されます。利用できる権利・許可のあるコンテンツでお使いください。</p></details><details><summary>音声はどこに保存されますか？</summary><p>このサービスは音声ファイルを保存しません。再生時にYouTubeから取得し、Vercelを経由してアプリへ送ります。アプリ側のダウンロード機能では端末に保存されます。YouTubeで動画が削除された場合やアクセスが制限された場合は、再生できなくなります。</p></details></section>
+  </main>
+  <footer><span class="footer-brand">yp2pc.</span><p>画面を閉じて、耳をひらこう。</p><span>YouTube・Appleの公式サービスではありません。</span></footer>
+</body>
+</html>
