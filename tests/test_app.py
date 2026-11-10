@@ -4,6 +4,7 @@ import io
 import json
 import os
 import threading
+import subprocess
 import unittest
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -96,6 +97,16 @@ class ValidationTests(unittest.TestCase):
         info = {"ext": "m4a", "url": "https://r1.googlevideo.com/media", "filesize_approx": 99}
         with patch.object(youtube, "cache", youtube.MetadataCache()), patch.object(youtube, "extract", return_value=info), patch.object(youtube, "open_media", return_value=Upstream(b"", {"Content-Length": "100"})):
             self.assertEqual(youtube.audio_source("TbalaZ5EhYA")["size"], 100)
+
+    def test_bot_rejection_is_distinguished_from_missing_dependency(self):
+        cases = [("Sign in to confirm you're not a bot", "youtube_blocked", 502),
+                 ("No module named yt_dlp", "configuration_error", 503)]
+        for stderr, code, status in cases:
+            with self.subTest(code=code), patch.object(youtube, "command_prefix", return_value=["yt-dlp"]), patch.object(youtube.importlib.util, "find_spec", return_value=None), patch.object(youtube.shutil, "which", return_value=None), patch.object(youtube.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", stderr)):
+                with self.assertRaises(core.AppError) as error:
+                    youtube.extract("https://www.youtube.com/watch?v=TbalaZ5EhYA", [])
+                self.assertEqual(error.exception.code, code)
+                self.assertEqual(error.exception.status, status)
 
 
 class Upstream(io.BytesIO):
