@@ -41,7 +41,7 @@
       </form>
       <div id="progress" class="progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><div><strong id="progress-title">音声とサムネイルを保存しています</strong><p>動画数によって数分かかります。この画面を開いたままお待ちください。</p></div></div>
       <p id="error" class="error-message" role="alert" hidden></p>
-      <div class="card-foot"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v5m0-8v1"/></svg><span id="storage-note">初回は音声をPCに保存します。保存後の再生・シークはPCから直接配信します。</span></div>
+      <div class="card-foot"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 9v5m0-8v1"/></svg><span id="storage-note">初回は音声をサーバーに保存します。通常版・AM版とも、保存済みの音声を配信します。</span></div>
     </section>
 
     <section id="result" class="result" aria-labelledby="result-title" hidden>
@@ -71,7 +71,7 @@
       <div class="section-heading"><h2 id="how-title">いつものアプリで、3ステップ。</h2><span>使い方</span></div>
       <div class="steps"><article><span class="step-number">01</span><h3>プレイリストを貼る</h3><p>YouTubeの共有メニューから<br>プレイリストのURLをコピー。</p></article><article><span class="step-number">02</span><h3>RSSのURLをコピー</h3><p>「RSSを作成」を押して、<br>表示されたフィードURLをコピー。</p></article><article><span class="step-number">03</span><h3>Podcastで聴く</h3><p>アプリの「URLで番組を追加」に<br>貼り付けて、購読をスタート。</p></article></div>
     </section>
-    <section class="faq" aria-label="利用について"><details><summary>プレイリストに動画を追加したら？</summary><p>アプリがRSSを再取得すると、最新のプレイリストを確認します。対象はプレイリストの先頭から最大10件です。新しい動画が末尾に追加される場合は、YouTube側で並び順を変更してください。反映には本サービスのキャッシュ（最大5分）とアプリの更新間隔が影響します。</p></details><details><summary>どんな動画を聴けますか？</summary><p>公開動画のうち、M4A音声を取得できるものに対応します。非公開・年齢制限・メンバー限定・配信中のライブなどには対応していません。取得できなかった動画は結果に表示されます。利用できる権利・許可のあるコンテンツでお使いください。</p></details><details><summary>音声はどこに保存されますか？</summary><p id="storage-faq">音声と動画サムネイルは、このサーバーのディスクに保存します。保存済みの音声はYouTubeに再接続せず配信します。初回の取得には時間がかかります。PCの停止・スリープ中は利用できません。</p></details></section>
+    <section class="faq" aria-label="利用について"><details><summary>プレイリストに動画を追加したら？</summary><p>現在の運用では15分間隔でプレイリストを確認し、通常版とAM版の音声を準備します。対象は先頭から最大10件です。新しい動画はYouTube側で先頭に並べてください。Podcastへの反映にはアプリの更新間隔も影響します。</p></details><details><summary>どんな動画を聴けますか？</summary><p>公開動画のうち、M4A音声を取得できるものに対応します。非公開・年齢制限・メンバー限定・配信中のライブなどには対応していません。取得できなかった動画は結果に表示されます。利用できる権利・許可のあるコンテンツでお使いください。</p></details><details><summary>音声はどこに保存されますか？</summary><p id="storage-faq">音声と動画サムネイルは配信サーバーに保存します。現在はOCIから配信し、YouTubeへの接続は自宅のプロキシを経由します。自宅が停止しても保存済みの音声は再生できますが、新規取得と更新はできません。</p></details></section>
   </main>
   <footer><span class="footer-brand">yp2pc.</span><p>画面を閉じて、耳をひらこう。</p><span>YouTube・Appleの公式サービスではありません。</span></footer>
 </body>

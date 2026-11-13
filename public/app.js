@@ -77,7 +77,7 @@ function showFeed(data) {
     message.setAttribute("role", "status");
     audio.addEventListener("waiting", () => { message.textContent = "音声を読み込んでいます…"; });
     audio.addEventListener("playing", () => { message.textContent = ""; });
-    audio.addEventListener("error", () => { message.textContent = "音声を再生できませんでした。YouTube側の制限または接続エラーの可能性があります。再度RSSを作成してお試しください。"; });
+    audio.addEventListener("error", () => { message.textContent = "保存済み音声を再生できませんでした。接続を確認して再試行してください。AM版が未生成の場合は、同じプレイリストを再登録してください。"; });
     item.append(title, meta, quality, audio, message);
     list.append(item);
   }

@@ -1,6 +1,5 @@
 """セルフホスト用の音声・画像保存。完成ファイルだけを公開します。"""
 
-import hashlib
 import io
 import json
 import logging
@@ -158,7 +157,6 @@ def save_artwork(identifier):
 
 def download_audio(source, temporary, open_media):
     # YouTubeは全体GETを拒否することがあるため、上限付きのRangeで保存します。
-    digest = hashlib.sha256()
     written = 0
     size = source["size"]
     deadline = time.monotonic() + 240
@@ -181,11 +179,9 @@ def download_audio(source, temporary, open_media):
                     if received > expected or time.monotonic() > deadline:
                         raise AppError("音声の保存が上限を超えました。再試行してください。", 504, "download_failed")
                     output.write(chunk)
-                    digest.update(chunk)
                     written += len(chunk)
                 if received != expected:
                     raise AppError("音声の取得が途中で終了しました。再試行してください。", 502, "download_incomplete")
-    return digest
 
 
 def prepare_episode(identifier):
