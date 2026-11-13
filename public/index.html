@@ -46,19 +46,22 @@
 
     <section id="result" class="result" aria-labelledby="result-title" hidden>
       <div class="result-heading"><div class="success-mark" aria-hidden="true">✓</div><div><p class="result-kicker">フィードの準備ができました</p><h2 id="result-title"></h2><p id="result-meta"></p></div></div>
-      <label for="feed-url">購読用RSS URL</label>
+      <label for="feed-url">通常音質のRSS URL</label>
       <div class="copy-row"><input id="feed-url" readonly aria-describedby="copy-status"><button id="copy-button" class="primary" type="button">URLをコピー</button></div>
       <p id="copy-status" role="status" aria-live="polite"></p>
+      <label for="am-feed-url">AMラジオ音質のRSS URL</label>
+      <div class="copy-row"><input id="am-feed-url" readonly aria-describedby="am-copy-status"><button id="am-copy-button" class="primary" type="button">AM版URLをコピー</button></div>
+      <p id="am-copy-status" class="input-hint" role="status" aria-live="polite">モノラル・帯域制限・軽い歪みとノイズを加えた別番組です。</p>
       <p id="local-warning" class="notice" hidden>LAN実験用のURLです。iPadをPCと同じネットワークに接続し、PCとサーバーを起動したままお使いください。localhostや127.0.0.1のURLは別の端末から利用できません。</p>
       <p id="partial-warning" class="notice" hidden></p>
-      <div class="result-actions"><a id="rss-link" target="_blank" rel="noopener">RSSを開く ↗</a><a id="youtube-link" target="_blank" rel="noopener">元のプレイリスト ↗</a></div>
+      <div class="result-actions"><a id="rss-link" target="_blank" rel="noopener">通常版RSS ↗</a><a id="am-rss-link" target="_blank" rel="noopener">AM版RSS ↗</a><a id="youtube-link" target="_blank" rel="noopener">元のプレイリスト ↗</a></div>
       <details class="listen"><summary>エピソードを確認・試聴する <span id="episode-count"></span></summary><ol id="episodes"></ol></details>
       <div class="apple-note"><strong>Apple Podcastsへの追加</strong><p>「ライブラリ」のメニューから「URLで番組を追加」を選び、このRSS URLを貼り付けてください。Macでは「ファイル」→「URLで番組を追加」を使います。</p><small>アプリへの直接購読用です。Apple Podcastsの公開カタログへの掲載を保証するものではありません。</small></div>
     </section>
 
     <section id="feed-management" class="result" aria-labelledby="management-title">
       <div class="management-heading"><h2 id="management-title">登録済みフィード</h2><button id="refresh-feeds" class="secondary" type="button">一覧を更新</button></div>
-      <p class="input-hint">削除したフィードは配信を停止します。購読中の端末に保存済みの音声は削除されません。</p>
+      <p class="input-hint">通常版とAM版を別々に購読できます。削除すると両方のフィードの配信を停止します。購読中の端末に保存済みの音声は削除されません。</p>
       <label class="delete-option"><input id="remove-media" type="checkbox" checked>ほかのフィードで使っていない保存音声・画像も削除する</label>
       <p id="management-status" role="status" aria-live="polite"></p>
       <ul id="managed-feeds" class="managed-feeds"></ul>

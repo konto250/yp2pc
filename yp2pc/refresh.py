@@ -18,7 +18,9 @@ def refresh_once():
             if not storage.registered(feed["id"]):
                 continue
             try:
-                build_feed(feed["id"])
+                updated = build_feed(feed["id"])
+                if updated.get("episodes"):
+                    storage.prepare_am_feed(updated)
             except AppError as error:
                 logging.warning("フィードの定期更新失敗: %s", error.code)
             except Exception as error:

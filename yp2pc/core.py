@@ -93,7 +93,11 @@ def xml_text(value):
                    0x10000 <= ord(c) <= 0x10FFFF)
 
 
-def rss_document(feed, origin):
+def rss_document(feed, origin, variant="normal"):
+    if variant not in {"normal", "am"}:
+        raise ValueError("音質の指定が正しくありません。")
+    is_am = variant == "am"
+    suffix = ".am" if is_am else ""
     root = ET.Element("rss", {"version": "2.0"})
     channel = ET.SubElement(root, "channel")
 
@@ -101,7 +105,7 @@ def rss_document(feed, origin):
         ET.SubElement(parent, name).text = xml_text(value)
 
     source = "https://www.youtube.com/playlist?list=" + feed["id"]
-    tag(channel, "title", feed["title"])
+    tag(channel, "title", feed["title"] + ("【AMラジオ音質】" if is_am else ""))
     tag(channel, "link", source)
     tag(channel, "description", feed["description"] or feed["title"])
     tag(channel, "language", "ja")
@@ -115,7 +119,7 @@ def rss_document(feed, origin):
     cover = origin + "/artwork/" + artwork["id"] + ".jpg" if artwork else origin + "/cover.png"
     ET.SubElement(channel, f"{{{ITUNES}}}image", {"href": cover})
     ET.SubElement(channel, f"{{{ATOM}}}link", {
-        "href": origin + "/feed/" + feed["id"] + ".xml", "rel": "self", "type": "application/rss+xml"
+        "href": origin + "/feed/" + feed["id"] + suffix + ".xml", "rel": "self", "type": "application/xml"
     })
     for episode in feed["episodes"]:
         item = ET.SubElement(channel, "item")
@@ -124,9 +128,9 @@ def rss_document(feed, origin):
         if episode.get("artwork"):
             ET.SubElement(item, f"{{{ITUNES}}}image", {"href": origin + "/artwork/" + episode["id"] + ".jpg"})
         tag(item, "link", "https://www.youtube.com/watch?v=" + episode["id"])
-        ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = "youtube:video:" + episode["id"]
+        ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = "youtube:video:" + episode["id"] + (":am" if is_am else "")
         ET.SubElement(item, "enclosure", {
-            "url": origin + "/audio/" + episode["id"] + ".m4a" + ("?v=" + episode["sha256"][:16] if episode.get("sha256") else ""),
+            "url": origin + "/audio/" + episode["id"] + suffix + ".m4a" + ("?v=" + episode["sha256"][:16] if episode.get("sha256") else ""),
             "length": str(episode["size"]), "type": "audio/x-m4a"
         })
         if episode.get("published"):

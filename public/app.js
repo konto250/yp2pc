@@ -23,6 +23,9 @@ function showFeed(data) {
   document.querySelector("#result-title").textContent = data.title;
   document.querySelector("#result-meta").textContent = `${data.author} · ${data.episodes.length}エピソード`;
   feedUrl.value = data.feedUrl;
+  document.querySelector("#am-feed-url").value = data.amFeedUrl;
+  document.querySelector("#am-rss-link").href = data.amFeedUrl;
+  document.querySelector("#am-copy-status").textContent = "モノラル・帯域制限・軽い歪みとノイズを加えた別番組です。";
   document.querySelector("#rss-link").href = data.feedUrl;
   document.querySelector("#youtube-link").href = data.playlistUrl;
   document.querySelector("#local-warning").hidden = !data.local;
@@ -57,13 +60,25 @@ function showFeed(data) {
     // 同じ画面のオリジンで試聴します。本番用RSSのURLとは独立です。
     audio.src = `/audio/${encodeURIComponent(episode.id)}.m4a${episode.sha256 ? `?v=${encodeURIComponent(episode.sha256.slice(0, 16))}` : ""}`;
     audio.setAttribute("aria-label", `${episode.title}を試聴`);
+    const quality = document.createElement("select");
+    quality.setAttribute("aria-label", `${episode.title}の試聴音質`);
+    for (const [value, label] of [["normal", "通常音質"], ["am", "AMラジオ音質"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = label; quality.append(option);
+    }
+    const normalSource = audio.src;
+    quality.addEventListener("change", () => {
+      audio.pause();
+      audio.src = quality.value === "am" ? `/audio/${encodeURIComponent(episode.id)}.am.m4a` : normalSource;
+      message.textContent = "再生ボタンで選んだ音質を試聴できます。";
+    });
     const message = document.createElement("p");
     message.className = "audio-message";
     message.setAttribute("role", "status");
     audio.addEventListener("waiting", () => { message.textContent = "音声を読み込んでいます…"; });
     audio.addEventListener("playing", () => { message.textContent = ""; });
     audio.addEventListener("error", () => { message.textContent = "音声を再生できませんでした。YouTube側の制限または接続エラーの可能性があります。再度RSSを作成してお試しください。"; });
-    item.append(title, meta, audio, message);
+    item.append(title, meta, quality, audio, message);
     list.append(item);
   }
   document.querySelector("#episode-count").textContent = `（${data.episodes.length}件）`;
@@ -132,6 +147,17 @@ copyButton.addEventListener("click", async () => {
 });
 
 const managementStatus = document.querySelector("#management-status");
+async function copyFeedInput(input, status, label) {
+  try {
+    await navigator.clipboard.writeText(input.value);
+    status.textContent = `${label}のRSS URLをコピーしました。`;
+  } catch {
+    input.focus(); input.select(); input.setSelectionRange(0, input.value.length);
+    status.textContent = "URLを選択しました。長押しまたは端末のコピー操作でコピーしてください。";
+  }
+}
+document.querySelector("#am-copy-button").addEventListener("click", () =>
+  copyFeedInput(document.querySelector("#am-feed-url"), document.querySelector("#am-copy-status"), "AM版"));
 async function loadFeeds() {
   const response = await fetch("/api/feeds");
   if (response.status === 401) { location.replace("/login"); return; }
@@ -147,25 +173,24 @@ async function loadFeeds() {
     const count = document.createElement("span");
     count.className = "episode-meta";
     count.textContent = `${feed.episodeCount}エピソード`;
-    const url = document.createElement("input");
-    url.readOnly = true;
-    url.value = feed.feedUrl;
-    url.setAttribute("aria-label", `${feed.title}のRSS URL`);
+    item.append(title, count);
+    for (const [label, value] of [["通常音質", feed.feedUrl], ["AMラジオ音質", feed.amFeedUrl]]) {
+      const group = document.createElement("div");
+      group.className = "managed-quality";
+      const caption = document.createElement("span");
+      caption.textContent = `${label}のRSS URL`;
+      const row = document.createElement("div"); row.className = "copy-row";
+      const url = document.createElement("input");
+      url.readOnly = true; url.value = value;
+      url.setAttribute("aria-label", `${feed.title}の${label}RSS URL`);
+      const copy = document.createElement("button");
+      copy.type = "button"; copy.className = "secondary";
+      copy.textContent = `${label}をコピー`;
+      copy.addEventListener("click", () => copyFeedInput(url, managementStatus, label));
+      row.append(url, copy); group.append(caption, row); item.append(group);
+    }
     const actions = document.createElement("div");
     actions.className = "feed-actions";
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "secondary";
-    copy.textContent = "URLをコピー";
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(feed.feedUrl);
-        managementStatus.textContent = "RSS URLをコピーしました。";
-      } catch {
-        url.focus(); url.select(); url.setSelectionRange(0, url.value.length);
-        managementStatus.textContent = "URLを選択しました。長押しまたは端末のコピー操作でコピーしてください。";
-      }
-    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "danger";
@@ -173,7 +198,7 @@ async function loadFeeds() {
     remove.addEventListener("click", async () => {
       const removeMedia = document.querySelector("#remove-media").checked;
       const detail = removeMedia ? "ほかのフィードで使っていない保存音声・画像も削除します。" : "保存音声・画像は残します。";
-      if (!confirm(`「${feed.title}」のフィードを削除しますか？\n${detail}`)) return;
+      if (!confirm(`「${feed.title}」の通常版・AM版のフィードを削除しますか？\n${detail}`)) return;
       remove.disabled = true;
       try {
         const response = await fetch(`/api/feeds/${encodeURIComponent(feed.id)}`, {
@@ -195,8 +220,8 @@ async function loadFeeds() {
         remove.disabled = false;
       }
     });
-    actions.append(copy, remove);
-    item.append(title, count, url, actions);
+    actions.append(remove);
+    item.append(actions);
     list.append(item);
   }
 }

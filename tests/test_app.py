@@ -174,18 +174,73 @@ class HttpTests(unittest.TestCase):
             connection.close()
 
     def test_create_feed_and_read_xml(self):
-        with patch("api.index.build_feed", return_value=FEED):
+        with patch("api.index.build_feed", return_value=FEED), patch.object(storage, "prepare_am_feed", return_value=[]) as am:
             status, _, body = self.request("POST", "/api/feeds", json.dumps({"url": FEED["id"]}), {"Content-Type": "application/json"})
             self.assertEqual(status, 200)
             result = json.loads(body)
             self.assertTrue(result["feedUrl"].endswith("/feed/PLF119azDj_Og.xml"))
+            self.assertTrue(result["amFeedUrl"].endswith("/feed/PLF119azDj_Og.am.xml"))
+            am.assert_called_once_with(FEED)
             self.assertTrue(result["local"])
             status, headers, body = self.request("GET", "/feed/PLF119azDj_Og.xml")
             self.assertEqual(status, 200)
             self.assertEqual(ET.fromstring(body).tag, "rss")
-            status, _, body = self.request("GET", "/feed/PLF119azDj_Og.xml", headers={"If-None-Match": headers["ETag"]})
-            self.assertEqual(status, 304)
+            self.assertEqual(headers["Content-Type"], "application/xml; charset=utf-8")
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            self.assertNotIn("ETag", headers)
+            original = body
+            previous_etag = '"' + hashlib.sha256(body).hexdigest() + '"'
+            status, _, body = self.request("GET", "/feed/PLF119azDj_Og.xml", authenticated=False,
+                                          headers={"If-None-Match": previous_etag})
+            self.assertEqual(status, 200)
+            self.assertEqual(body, original)
+            status, headers, body = self.request("HEAD", "/feed/PLF119azDj_Og.xml", authenticated=False,
+                                                headers={"If-None-Match": previous_etag})
+            self.assertEqual(status, 200)
+            self.assertEqual(int(headers["Content-Length"]), len(original))
             self.assertEqual(body, b"")
+
+    def save_am(self):
+        from yp2pc.radio import RADIO_VERSION
+        original = storage.read_episode("TbalaZ5EhYA")
+        storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), {**FEED["episodes"][0], **original})
+        payload = b"am-radio-audio"
+        storage.media_path("TbalaZ5EhYA", ".am.m4a").write_bytes(payload)
+        storage.write_json(storage.media_path("TbalaZ5EhYA", ".am.json"), {
+            "source_sha256": hashlib.sha256(self.audio).hexdigest(), "radio_version": RADIO_VERSION,
+            "sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload), "duration": 10})
+        return payload
+
+    def test_am_is_separate_public_feed_and_audio_without_live_conversion(self):
+        payload = self.save_am()
+        with patch("api.index.build_feed", side_effect=AssertionError("公開AMフィードでは取得しません")), \
+                patch.object(storage, "prepare_am_episode", side_effect=AssertionError("公開配信で変換しません")):
+            status, headers, body = self.request("GET", "/feed/PLF119azDj_Og.am.xml", authenticated=False)
+            self.assertEqual(status, 200)
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            feed = ET.fromstring(body)
+            self.assertTrue(feed.findtext("channel/title").endswith("【AMラジオ音質】"))
+            self.assertEqual(feed.findtext("channel/item/guid"), "youtube:video:TbalaZ5EhYA:am")
+            enclosure = feed.find("channel/item/enclosure").attrib
+            self.assertIn("/audio/TbalaZ5EhYA.am.m4a?v=", enclosure["url"])
+            self.assertEqual(int(enclosure["length"]), len(payload))
+            status, headers, body = self.request("GET", "/audio/TbalaZ5EhYA.am.m4a", authenticated=False, headers={"Range": "bytes=2-5"})
+            self.assertEqual((status, body), (206, payload[2:6]))
+            self.assertEqual(headers["Content-Range"], f"bytes 2-5/{len(payload)}")
+            status, headers, body = self.request("HEAD", "/audio/TbalaZ5EhYA.am.m4a", authenticated=False)
+            self.assertEqual((status, int(headers["Content-Length"]), body), (200, len(payload), b""))
+        status, _, body = self.request("GET", "/api/feeds")
+        self.assertIn("amFeedUrl", json.loads(body)["feeds"][0])
+
+    def test_am_pending_and_deleted_feeds_never_trigger_conversion(self):
+        with patch.object(storage, "prepare_am_episode", side_effect=AssertionError("公開配信で変換しません")):
+            self.assertEqual(self.request("GET", "/feed/PLF119azDj_Og.am.xml", authenticated=False)[0], 503)
+            self.save_am()
+            status, _, body = self.request("DELETE", "/api/feeds/PLF119azDj_Og", "{}", {"Content-Type": "application/json"})
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["removedFiles"], 4)
+            for path in ("/feed/PLF119azDj_Og.am.xml", "/audio/TbalaZ5EhYA.am.m4a"):
+                self.assertEqual(self.request("GET", path, authenticated=False)[0], 404)
 
     def test_failed_feed_does_not_return_success_or_cache_error(self):
         with patch("api.index.build_feed", side_effect=core.AppError("取得できません。", 502)):
@@ -319,10 +374,12 @@ class HttpTests(unittest.TestCase):
                 self.assertEqual(self.request("GET", path, authenticated=False)[0], 404)
 
     def test_delete_preserves_shared_media_and_can_keep_files(self):
+        self.save_am()
         storage.save_feed({**FEED, "id": "PLshared12345"})
         status, _, body = self.request("DELETE", "/api/feeds/PLF119azDj_Og", "{}", {"Content-Type": "application/json"})
         self.assertEqual((status, json.loads(body)["removedFiles"]), (200, 0))
         self.assertTrue(storage.media_path("TbalaZ5EhYA").is_file())
+        self.assertTrue(storage.media_path("TbalaZ5EhYA", ".am.m4a").is_file())
         status, _, _ = self.request("DELETE", "/api/feeds/PLshared12345", '{"removeMedia":false}', {"Content-Type": "application/json"})
         self.assertEqual(status, 200)
         self.assertTrue(storage.media_path("TbalaZ5EhYA").is_file())

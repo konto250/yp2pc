@@ -1,6 +1,5 @@
 """セルフホスト用のRSS・保存済み音声・画像配信ハンドラー。"""
 
-import hashlib
 import json
 import logging
 import re
@@ -70,7 +69,8 @@ class handler(BaseHTTPRequestHandler):
                 self.require_admin()
                 origin = base_url(self.headers.get("Host"))
                 if self.command == "GET":
-                    feeds = [{**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml"} for feed in storage.list_feeds()]
+                    feeds = [{**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
+                              "amFeedUrl": origin + "/feed/" + feed["id"] + ".am.xml"} for feed in storage.list_feeds()]
                     return self.json_response(200, {"feeds": feeds})
                 if self.command != "POST":
                     return self.respond(405, b"", {"Allow": "GET, POST"})
@@ -79,7 +79,10 @@ class handler(BaseHTTPRequestHandler):
                 with storage.feed_operation:
                     feed = build_feed(playlist_id(body.get("url")))
                     storage.save_feed(feed)
+                    am_issues = storage.prepare_am_feed(feed)
                 result = {**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
+                          "amFeedUrl": origin + "/feed/" + feed["id"] + ".am.xml",
+                          "issues": [*feed.get("issues", []), *am_issues],
                           "playlistUrl": "https://www.youtube.com/playlist?list=" + feed["id"],
                           "local": origin.startswith("http://")}
                 result["episodes"] = [{**episode, "artworkUrl": origin + "/artwork/" + episode["id"] + ".jpg" if episode.get("artwork") else None}
@@ -102,26 +105,36 @@ class handler(BaseHTTPRequestHandler):
                 if self.command not in {"GET", "HEAD"}:
                     return self.respond(405, b"", {"Allow": "GET, HEAD"})
                 identifier = path[len("/feed/"):-4]
+                is_am = identifier.endswith(".am")
+                if is_am:
+                    identifier = identifier[:-3]
                 if not PLAYLIST_ID.fullmatch(identifier):
                     raise AppError("フィードが見つかりません。", 404, "not_found")
-                if refresh.interval():
+                if refresh.interval() or is_am:
                     # 更新中・自宅停止中でも、完成済みのスナップショットを直ちに配信します。
                     feed = storage.load_feed(identifier, normalize_media=False)
                     if not feed:
                         raise AppError("保存済みのフィードが見つかりません。", 404, "not_found")
-                    content = rss_document(feed, base_url(self.headers.get("Host")))
+                    content = rss_document(storage.am_feed(feed) if is_am else feed,
+                                           base_url(self.headers.get("Host")), "am" if is_am else "normal")
                 else:
                     content = self.refresh_rss(identifier)
-                etag = '"' + hashlib.sha256(content).hexdigest() + '"'
-                headers = {"Content-Type": "application/rss+xml; charset=utf-8", "ETag": etag,
-                           "Cache-Control": "public, max-age=0, must-revalidate"}
-                if self.headers.get("If-None-Match") == etag:
-                    return self.respond(304, b"", headers)
+                # 購読時の互換性を優先し、RSSは条件付き要求でも本文を返します。
+                # 音声・画像のキャッシュとRange配信は維持します。
+                headers = {"Content-Type": "application/xml; charset=utf-8",
+                           "Cache-Control": "no-store"}
                 return self.respond(200, content, headers)
             if path.startswith("/audio/") and path.endswith(".m4a"):
                 if self.command not in {"GET", "HEAD"}:
                     return self.respond(405, b"", {"Allow": "GET, HEAD"})
-                return self.stream_audio(video_id(path[len("/audio/"):-4]))
+                identifier = path[len("/audio/"):-4]
+                if identifier.endswith(".am"):
+                    identifier = video_id(identifier[:-3])
+                    saved = storage.read_am_episode(identifier)
+                    if not saved:
+                        raise AppError("AM版の保存済み音声がありません。", 404, "not_found")
+                    return self.serve_file(storage.media_path(identifier, ".am.m4a"), "audio/x-m4a", saved["sha256"])
+                return self.stream_audio(video_id(identifier))
             if path.startswith("/artwork/") and path.endswith(".jpg") and self.command in {"GET", "HEAD"}:
                 identifier = video_id(path[len("/artwork/"):-4])
                 return self.serve_file(storage.media_path(identifier, ".jpg"), "image/jpeg")

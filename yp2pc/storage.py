@@ -26,7 +26,7 @@ def root():
 
 
 def media_path(identifier, suffix=".m4a"):
-    if suffix not in {".m4a", ".jpg", ".json"}:
+    if suffix not in {".m4a", ".jpg", ".json", ".am.m4a", ".am.json"}:
         raise ValueError("保存形式が正しくありません。")
     return root() / (video_id(identifier) + suffix)
 
@@ -47,6 +47,63 @@ def write_json(path, value):
     temporary = path.with_suffix(".json.part")
     temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
     temporary.replace(path)
+
+
+def read_am_episode(identifier):
+    from yp2pc.radio import RADIO_VERSION
+    original = read_episode(identifier)
+    if not original:
+        return None
+    try:
+        details = json.loads(media_path(identifier, ".am.json").read_text(encoding="utf-8"))
+        if (details["source_sha256"] != original["sha256"] or details["radio_version"] != RADIO_VERSION
+                or details["size"] <= 0 or media_path(identifier, ".am.m4a").stat().st_size != details["size"]):
+            return None
+        return {**original, **details}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def prepare_am_episode(identifier):
+    from yp2pc.radio import convert
+    with _download_lock:
+        saved = read_am_episode(identifier)
+        if saved:
+            return saved
+        original = read_episode(identifier)
+        if not original:
+            raise AppError("通常版の保存済み音声がありません。", 404, "not_found")
+        target = media_path(identifier, ".am.m4a")
+        temporary = target.with_suffix(".m4a.part")
+        check_space(max(original["size"], int(original.get("duration", 0) * 7000)), copies=2)
+        try:
+            details = convert(media_path(identifier), temporary, original.get("duration"))
+            details["source_sha256"] = original["sha256"]
+            temporary.replace(target)
+            write_json(media_path(identifier, ".am.json"), details)
+            return {**original, **details}
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def prepare_am_feed(feed):
+    """管理操作・定期更新で事前生成します。公開RSSへのアクセスでは生成しません。"""
+    issues = []
+    with feed_operation:
+        for episode in feed["episodes"]:
+            try:
+                prepare_am_episode(episode["id"])
+            except (AppError, OSError) as error:
+                issues.append({"id": episode["id"], "message": "AM版の生成に失敗しました。通常版は利用できます。"})
+                logging.warning("AM版生成失敗: %s", getattr(error, "code", type(error).__name__))
+    return issues
+
+
+def am_feed(feed):
+    episodes = [saved for episode in feed["episodes"] if (saved := read_am_episode(episode["id"]))]
+    if not episodes:
+        raise AppError("AM版の音声を準備中です。管理画面でプレイリストを再登録してください。", 503, "am_not_ready")
+    return {**feed, "episodes": episodes}
 
 
 def check_space(size, copies=1):
@@ -236,7 +293,7 @@ def delete_feed(identifier, remove_media=True):
             with _download_lock:
                 for episode in feed["episodes"]:
                     if episode["id"] not in retained_ids:
-                        for suffix in (".m4a", ".jpg", ".json"):
+                        for suffix in (".m4a", ".jpg", ".json", ".am.m4a", ".am.json"):
                             target = media_path(episode["id"], suffix)
                             try:
                                 if target.is_file():

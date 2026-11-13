@@ -20,9 +20,9 @@ def executable(name):
     return path
 
 
-def run(args):
+def run(args, timeout=120):
     try:
-        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         raise AppError("音声の補正ツールを実行できませんでした。設定と保存先を確認してください。", 503, "normalization_failed") from None
     if result.returncode:
