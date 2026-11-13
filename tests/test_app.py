@@ -193,6 +193,21 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(status, 502)
             self.assertEqual(headers["Cache-Control"], "no-store")
 
+    def test_background_mode_serves_saved_rss_during_refresh_and_outage(self):
+        saved = {**FEED["episodes"][0], "size": 8, "media_version": 1,
+                 "sha256": hashlib.sha256(self.audio).hexdigest()}
+        storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), saved)
+        # 別スレッドの更新ロックを保持しても、RSS・音声配信は待ちません。
+        with patch.dict(os.environ, {"FEED_REFRESH_SECONDS": "900", "https_proxy": "http://127.0.0.1:1"}), \
+                patch("api.index.build_feed", side_effect=AssertionError("配信時の取得は禁止")), \
+                patch.object(youtube, "extract", side_effect=AssertionError("外部接続は禁止")), \
+                storage.feed_operation:
+            status, _, body = self.request("GET", "/feed/PLF119azDj_Og.xml", authenticated=False)
+            self.assertEqual(status, 200)
+            self.assertEqual(ET.fromstring(body).findtext("channel/item/title"), saved["title"])
+            self.assertEqual(self.request("GET", "/audio/TbalaZ5EhYA.m4a", authenticated=False)[0], 200)
+            self.assertEqual(self.request("GET", "/feed/PLmissing123.xml", authenticated=False)[0], 404)
+
     def test_wrong_method_json_and_large_request(self):
         self.assertEqual(self.request("HEAD", "/api/feeds")[0], 405)
         self.assertEqual(self.request("POST", "/api/feeds", "{}")[0], 415)

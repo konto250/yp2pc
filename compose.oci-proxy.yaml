@@ -1,0 +1,16 @@
+# compose.yaml:compose.cloud.yaml:compose.oci-proxy.yaml の順に重ねます。
+# SSHがホストのループバックに作る転送口を使用するLinux専用構成です。
+services:
+  yp2pc:
+    network_mode: host
+    ports: !reset []
+    command: [python, dev.py, --host, 127.0.0.1, --port, "3001"]
+    environment:
+      http_proxy: http://127.0.0.1:18888
+      https_proxy: http://127.0.0.1:18888
+      no_proxy: localhost,127.0.0.1,::1
+      FEED_REFRESH_SECONDS: "${FEED_REFRESH_SECONDS:-900}"
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:3001/health', timeout=3).close()"]
+  cloudflared:
+    network_mode: host

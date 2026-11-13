@@ -4,34 +4,37 @@ YouTubeプレイリストをApple Podcastで購読できるRSSに変換する、
 
 音声と動画サムネイルをサーバーのディスクに保存します。初回の準備後は、音声の再生・シーク時にYouTubeへ再接続しません。Linux DockerまたはWindows PCで動かす実験用の構成です。
 
-## 現在の稼働構成（2026-11-10）
+## 現在の稼働構成（2026-11-13）
 
 ユーザー名とホームディレクトリは `user` を使った例です。実際の環境に合わせて読み替えてください。
 
 | 項目 | 現在の設定 |
 | --- | --- |
-| 実行環境 | Linux PC `user@192.168.1.121` のDocker Compose |
+| 実行環境 | 管理画面・保存・配信はOracle Cloud VMのDocker Compose |
 | 配置先 | `/home/user/yp2pc` |
 | 永続データ | `/home/user/yp2pc/data` |
-| 配信経路 | Cloudflare Tunnel → `192.168.1.121:3001` → コンテナ内3000番 |
+| 配信経路 | Cloudflare Tunnel → OCIの `127.0.0.1:3001` |
+| YouTube取得 | OCI → SSH逆方向トンネル → 自宅LinuxのTinyproxy → YouTube |
+| 自宅の役割 | プロキシとSSHクライアントをDockerで実行。MAP-Eでも外部からの着信接続は不要 |
+| 自動更新 | 登録済みフィードを15分間隔で更新。RSSは保存済みの内容を即時配信 |
 | 認証 | 管理画面・一覧・追加・削除はパスワード必須。RSS・音声・画像は認証不要 |
 | 起動 | Docker Engineの自動起動が有効。コンテナは `unless-stopped` で再開 |
 
-Windowsの旧実験サーバーは停止済みです。現在の配信はWindows PCの稼働に依存しません。初期パスワードの控えはWindows作業ディレクトリの `.local/yp2pc-admin-password.txt`（Git管理外）にあります。変更方法は後述の管理画面設定を参照してください。
+Windowsの旧実験サーバーと自宅Linuxの旧配信アプリは停止済みです。自宅が停止しても、OCIに保存済みのRSS・音声・画像は配信できます。新規取得と更新には自宅の稼働が必要です。YouTubeのログインCookieやPO Tokenプラグインは使用していません。初期パスワードの控えはWindows作業ディレクトリの `.local/yp2pc-admin-password.txt`（Git管理外）にあります。変更方法は後述の管理画面設定を参照してください。
 
-Linux側は初回にソースのアーカイブを転送して配置したため、現在の `/home/user/yp2pc` はGit cloneされたディレクトリではありません。更新・バックアップ・停止方法とCloudflare設定の詳細は[Docker運用手順](docs/docker.md)にまとめています。
+両Linux環境はソースのアーカイブを転送して配置しており、配置先はGit cloneされたディレクトリではありません。現行構成の設定・更新・停止方法は[自宅プロキシ＋OCI配信の運用手順](docs/home-proxy.md)を参照してください。[Docker運用手順](docs/docker.md)は従来の自宅単体構成の記録です。
 
-## iPadから利用する（現行Linux版）
+## iPadから利用する
 
 1. 設定した公開URLのWeb管理画面へログインし、YouTubeプレイリストのURLを入力します。
 2. 音声の準備完了後、表示されたRSS URLをコピーします。
 3. iPadのPodcast →「ライブラリ」→「…」→「番組をURLで追加」に貼り付けます。Podcastアプリへのパスワード設定は不要です。
 
-公開HTTPS URLからの登録・再生はiPad実機で確認済みです。旧Windows版のLAN用URLを登録している場合は、管理画面からコピーしたHTTPS版RSS URLを追加してください。Linux PCとDocker・cloudflaredが動作している間は、配信元と同じLANに接続する必要はありません。
+従来の公開HTTPS購読URLとエピソードGUIDを維持しているため、OCIへの移行に伴う再登録は不要です。公開HTTPSでのRSS、音声全体のハッシュ、HEAD・Range、画像、管理APIを確認済みです。iPad実機での登録・再生は旧配信環境で確認済みで、切替後の実機確認は別途行います。旧Windows版のLAN用URLを登録している場合は、管理画面からコピーしたHTTPS版RSS URLを追加してください。外出先でも利用できます。
 
 ## Linux Dockerで起動
 
-Oracle Cloudへ移行し、アプリと `cloudflared` の両方をDockerで動かす場合は、[Oracle Cloud移行手順](docs/oracle-cloud.md)を参照してください。
+現行のOracle Cloud＋自宅プロキシ構成は[専用の運用手順](docs/home-proxy.md)を参照してください。[Oracle Cloud移行手順](docs/oracle-cloud.md)にはデータ移行と直接取得の検証記録を残しています。以下は自宅Linuxだけで取得・配信する場合の手順です。
 
 ```bash
 mkdir -p data

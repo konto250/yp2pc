@@ -1,0 +1,41 @@
+# 自宅Linuxで単独使用します。アプリ本体や既存の共有Tunnelには触れません。
+name: yp2pc-home-proxy
+services:
+  proxy:
+    build: ./deploy/home-proxy
+    image: yp2pc:home-proxy
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, nc, -z, 127.0.0.1, "3128"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  tunnel:
+    image: yp2pc:home-proxy
+    command: [/usr/local/bin/yp2pc-tunnel]
+    restart: unless-stopped
+    init: true
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    environment:
+      OCI_SSH_HOST: "${OCI_SSH_HOST:?OCI_SSH_HOSTを設定してください}"
+      OCI_SSH_USER: "${OCI_SSH_USER:?OCI_SSH_USERを設定してください}"
+    volumes:
+      - ./.local/home-proxy-key:/run/secrets/tunnel-key:ro
+      - ./.local/oci-known-hosts:/run/secrets/known-hosts:ro
+    depends_on:
+      proxy: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}

@@ -247,14 +247,14 @@ def delete_feed(identifier, remove_media=True):
         return {"deleted": identifier, "removedFiles": removed, "cleanupFailures": failures}
 
 
-def load_feed(identifier):
+def load_feed(identifier, normalize_media=True):
     try:
         feed = json.loads((root() / ("feed-" + playlist_id(identifier) + ".json")).read_text(encoding="utf-8"))
         episodes = []
         for episode in feed["episodes"]:
             saved = read_episode(episode["id"])
             if saved:
-                episodes.append(prepare_episode(episode["id"]) if saved.get("media_version") != MEDIA_VERSION else saved)
+                episodes.append(prepare_episode(episode["id"]) if normalize_media and saved.get("media_version") != MEDIA_VERSION else saved)
         feed["episodes"] = episodes
         return feed if feed["episodes"] else None
     except (OSError, ValueError, KeyError, TypeError):

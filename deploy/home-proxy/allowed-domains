@@ -1,0 +1,4 @@
+^([a-z0-9-]+\.)*youtube\.com$
+^([a-z0-9-]+\.)*googlevideo\.com$
+^([a-z0-9-]+\.)*ytimg\.com$
+^youtubei\.googleapis\.com$

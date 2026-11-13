@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from yp2pc.core import AppError, PLAYLIST_ID, base_url, playlist_id, rss_document, video_id
 from yp2pc.youtube import build_feed
-from yp2pc import storage, auth
+from yp2pc import storage, auth, refresh
 from yp2pc.media import MEDIA_VERSION
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
@@ -104,10 +104,14 @@ class handler(BaseHTTPRequestHandler):
                 identifier = path[len("/feed/"):-4]
                 if not PLAYLIST_ID.fullmatch(identifier):
                     raise AppError("フィードが見つかりません。", 404, "not_found")
-                with storage.feed_operation:
-                    if not storage.registered(identifier):
-                        raise AppError("未登録または削除済みのフィードです。", 404, "not_found")
-                    content = rss_document(build_feed(identifier), base_url(self.headers.get("Host")))
+                if refresh.interval():
+                    # 更新中・自宅停止中でも、完成済みのスナップショットを直ちに配信します。
+                    feed = storage.load_feed(identifier, normalize_media=False)
+                    if not feed:
+                        raise AppError("保存済みのフィードが見つかりません。", 404, "not_found")
+                    content = rss_document(feed, base_url(self.headers.get("Host")))
+                else:
+                    content = self.refresh_rss(identifier)
                 etag = '"' + hashlib.sha256(content).hexdigest() + '"'
                 headers = {"Content-Type": "application/rss+xml; charset=utf-8", "ETag": etag,
                            "Cache-Control": "public, max-age=0, must-revalidate"}
@@ -137,6 +141,12 @@ class handler(BaseHTTPRequestHandler):
     def require_admin(self):
         if not auth.authenticated(self.headers.get("Cookie")):
             raise AppError("ログインが必要です。", 401, "login_required")
+
+    def refresh_rss(self, identifier):
+        with storage.feed_operation:
+            if not storage.registered(identifier):
+                raise AppError("未登録または削除済みのフィードです。", 404, "not_found")
+            return rss_document(build_feed(identifier), base_url(self.headers.get("Host")))
 
     def check_origin(self):
         origin = base_url(self.headers.get("Host"))

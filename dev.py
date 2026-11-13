@@ -6,6 +6,7 @@ from http.server import ThreadingHTTPServer
 
 from api.index import handler
 from yp2pc.core import AppError, base_url
+from yp2pc import refresh
 
 
 if __name__ == "__main__":
@@ -21,6 +22,7 @@ if __name__ == "__main__":
     except AppError as error:
         parser.error(str(error))
     server = ThreadingHTTPServer((args.host, args.port), handler)
+    refresh_stop = refresh.start()
     print(f"YP2PC: {origin}", flush=True)
     print("終了: Ctrl+C。PCの停止・スリープ中はRSSと音声を取得できません。", flush=True)
     try:
@@ -28,4 +30,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
+        refresh_stop.set()
         server.server_close()
