@@ -187,7 +187,43 @@ async function loadFeeds() {
       copy.type = "button"; copy.className = "secondary";
       copy.textContent = `${label}をコピー`;
       copy.addEventListener("click", () => copyFeedInput(url, managementStatus, label));
-      row.append(url, copy); group.append(caption, row); item.append(group);
+      const renew = document.createElement("button");
+      renew.type = "button"; renew.className = "secondary";
+      renew.textContent = `${label}のURLを再発行`;
+      renew.addEventListener("click", async () => {
+        renew.disabled = true;
+        try {
+          const response = await fetch(`/api/feeds/${encodeURIComponent(feed.id)}/subscriptions`, {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({variant: label === "通常音質" ? "normal" : "am"}),
+          });
+          if (response.status === 401) { location.replace("/login"); return; }
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "再発行できませんでした。");
+          if (activeFeedId === feed.id) {
+            feedUrl.value = data.feedUrl;
+            document.querySelector("#rss-link").href = data.feedUrl;
+            document.querySelector("#am-feed-url").value = data.amFeedUrl;
+            document.querySelector("#am-rss-link").href = data.amFeedUrl;
+          }
+          await loadFeeds();
+          managementStatus.textContent = `${label}の新しいURLを発行しました。コピーしてPodcastに登録してください。以前のURLも利用できます。`;
+        } catch (error) { managementStatus.textContent = error.message; renew.disabled = false; }
+      });
+      row.append(url, copy); group.append(caption, row, renew); item.append(group);
+    }
+    if (feed.subscriptions?.length) {
+      const history = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = `発行済みURL（${feed.subscriptions.length}件・すべて有効）`;
+      history.append(summary);
+      for (const entry of feed.subscriptions) {
+        const caption = document.createElement("label");
+        caption.textContent = `${entry.variant === "am" ? "AM版" : "通常版"} · ${new Date(entry.created * 1000).toLocaleString("ja-JP")}`;
+        const input = document.createElement("input"); input.readOnly = true; input.value = entry.url;
+        caption.append(input); history.append(caption);
+      }
+      item.append(history);
     }
     const actions = document.createElement("div");
     actions.className = "feed-actions";

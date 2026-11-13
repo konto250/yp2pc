@@ -281,6 +281,9 @@ def delete_feed(identifier, remove_media=True):
                 if other != path:
                     document = json.loads(other.read_text(encoding="utf-8"))
                     retained_ids.update(episode["id"] for episode in document["episodes"])
+        # 再登録しても削除済みの購読URLを復活させません。
+        from yp2pc import subscriptions
+        subscriptions.remove(identifier)
         path.unlink()
         for limit in range(1, 11):
             cache.remove(f"feed:{identifier}:{limit}")

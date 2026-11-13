@@ -178,8 +178,9 @@ class HttpTests(unittest.TestCase):
             status, _, body = self.request("POST", "/api/feeds", json.dumps({"url": FEED["id"]}), {"Content-Type": "application/json"})
             self.assertEqual(status, 200)
             result = json.loads(body)
-            self.assertTrue(result["feedUrl"].endswith("/feed/PLF119azDj_Og.xml"))
-            self.assertTrue(result["amFeedUrl"].endswith("/feed/PLF119azDj_Og.am.xml"))
+            self.assertIn("/subscribe/", result["feedUrl"])
+            self.assertIn("/subscribe/", result["amFeedUrl"])
+            self.assertNotEqual(result["feedUrl"], result["amFeedUrl"])
             am.assert_called_once_with(FEED)
             self.assertTrue(result["local"])
             status, headers, body = self.request("GET", "/feed/PLF119azDj_Og.xml")
@@ -199,6 +200,46 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(int(headers["Content-Length"]), len(original))
             self.assertEqual(body, b"")
+
+    def test_subscription_reissue_persistence_and_delete(self):
+        from urllib.parse import urlsplit
+        from yp2pc import subscriptions
+        self.save_am()
+        headers = {"Content-Type": "application/json"}
+        endpoint = "/api/feeds/PLF119azDj_Og/subscriptions"
+        self.assertEqual(self.request("POST", endpoint, '{"variant":"normal"}', headers, False)[0], 401)
+        self.assertEqual(self.request("POST", endpoint, '{"variant":"other"}', headers)[0], 400)
+        self.assertEqual(self.request("POST", endpoint, '{"variant":"normal"}', {**headers, "Origin": "https://evil.example"})[0], 403)
+        paths = []
+        for variant in ("normal", "normal", "am"):
+            status, _, body = self.request("POST", endpoint, json.dumps({"variant": variant}), headers)
+            self.assertEqual(status, 201)
+            data = json.loads(body)
+            paths.append(urlsplit(data["amFeedUrl" if variant == "am" else "feedUrl"]).path)
+        self.assertEqual(len(set(paths)), 3)
+        self.assertEqual(len(subscriptions.read()), 3)
+        guids, audio = [], []
+        for path in paths:
+            status, reply, body = self.request("GET", path, authenticated=False)
+            self.assertEqual(status, 200)
+            self.assertNotIn("Location", reply)
+            root = ET.fromstring(body)
+            self.assertTrue(root.find("channel/{http://www.w3.org/2005/Atom}link").attrib["href"].endswith(path))
+            guids.append(root.findtext("channel/item/guid"))
+            audio.append(root.find("channel/item/enclosure").attrib["url"])
+            self.assertEqual(self.request("HEAD", path, authenticated=False)[0], 200)
+        self.assertEqual(guids[0], guids[1])
+        self.assertEqual(audio[0], audio[1])
+        self.assertNotEqual(guids[0], guids[2])
+        original = storage.read_episode("TbalaZ5EhYA")
+        storage.write_json(storage.media_path("TbalaZ5EhYA", ".json"), {**original, "title": "更新後"})
+        for path in paths:
+            self.assertEqual(ET.fromstring(self.request("GET", path, authenticated=False)[2]).findtext("channel/item/title"), "更新後")
+        self.request("DELETE", "/api/feeds/PLF119azDj_Og", '{"removeMedia":false}', headers)
+        storage.save_feed(FEED)
+        for path in paths:
+            self.assertEqual(self.request("GET", path, authenticated=False)[0], 404)
+        self.assertTrue(storage.media_path("TbalaZ5EhYA").exists())
 
     def save_am(self):
         from yp2pc.radio import RADIO_VERSION

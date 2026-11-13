@@ -93,7 +93,7 @@ def xml_text(value):
                    0x10000 <= ord(c) <= 0x10FFFF)
 
 
-def rss_document(feed, origin, variant="normal"):
+def rss_document(feed, origin, variant="normal", self_url=None):
     if variant not in {"normal", "am"}:
         raise ValueError("音質の指定が正しくありません。")
     is_am = variant == "am"
@@ -119,7 +119,7 @@ def rss_document(feed, origin, variant="normal"):
     cover = origin + "/artwork/" + artwork["id"] + ".jpg" if artwork else origin + "/cover.png"
     ET.SubElement(channel, f"{{{ITUNES}}}image", {"href": cover})
     ET.SubElement(channel, f"{{{ATOM}}}link", {
-        "href": origin + "/feed/" + feed["id"] + suffix + ".xml", "rel": "self", "type": "application/xml"
+        "href": self_url or origin + "/feed/" + feed["id"] + suffix + ".xml", "rel": "self", "type": "application/xml"
     })
     for episode in feed["episodes"]:
         item = ET.SubElement(channel, "item")

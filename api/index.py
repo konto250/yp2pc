@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from yp2pc.core import AppError, PLAYLIST_ID, base_url, playlist_id, rss_document, video_id
 from yp2pc.youtube import build_feed
-from yp2pc import storage, auth, refresh
+from yp2pc import storage, auth, refresh, subscriptions
 from yp2pc.media import MEDIA_VERSION
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
@@ -69,8 +69,7 @@ class handler(BaseHTTPRequestHandler):
                 self.require_admin()
                 origin = base_url(self.headers.get("Host"))
                 if self.command == "GET":
-                    feeds = [{**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
-                              "amFeedUrl": origin + "/feed/" + feed["id"] + ".am.xml"} for feed in storage.list_feeds()]
+                    feeds = [{**feed, **subscriptions.urls(feed["id"], origin)} for feed in storage.list_feeds()]
                     return self.json_response(200, {"feeds": feeds})
                 if self.command != "POST":
                     return self.respond(405, b"", {"Allow": "GET, POST"})
@@ -80,6 +79,8 @@ class handler(BaseHTTPRequestHandler):
                     feed = build_feed(playlist_id(body.get("url")))
                     storage.save_feed(feed)
                     am_issues = storage.prepare_am_feed(feed)
+                    for variant in ("normal", "am"):
+                        subscriptions.issue(feed["id"], variant)
                 result = {**feed, "feedUrl": origin + "/feed/" + feed["id"] + ".xml",
                           "amFeedUrl": origin + "/feed/" + feed["id"] + ".am.xml",
                           "issues": [*feed.get("issues", []), *am_issues],
@@ -87,7 +88,31 @@ class handler(BaseHTTPRequestHandler):
                           "local": origin.startswith("http://")}
                 result["episodes"] = [{**episode, "artworkUrl": origin + "/artwork/" + episode["id"] + ".jpg" if episode.get("artwork") else None}
                                       for episode in feed["episodes"]]
+                result.update(subscriptions.urls(feed["id"], origin))
                 return self.json_response(200, result)
+            if path.startswith("/api/feeds/") and path.endswith("/subscriptions"):
+                self.require_admin()
+                if self.command != "POST":
+                    return self.respond(405, b"", {"Allow": "POST"})
+                self.check_origin()
+                identifier = playlist_id(path[len("/api/feeds/"):-len("/subscriptions")])
+                variant = self.read_json().get("variant")
+                with storage.feed_operation:
+                    subscriptions.issue(identifier, variant)
+                    result = subscriptions.urls(identifier, base_url(self.headers.get("Host")))
+                return self.json_response(201, result)
+            if path.startswith("/subscribe/") and path.endswith(".xml"):
+                if self.command not in {"GET", "HEAD"}:
+                    return self.respond(405, b"", {"Allow": "GET, HEAD"})
+                record = subscriptions.resolve(path[len("/subscribe/"):-4])
+                feed = storage.load_feed(record["id"], normalize_media=False)
+                if not feed:
+                    raise AppError("保存済みのフィードがありません。", 404, "not_found")
+                if record["variant"] == "am":
+                    feed = storage.am_feed(feed)
+                origin = base_url(self.headers.get("Host"))
+                content = rss_document(feed, origin, record["variant"], origin + path)
+                return self.respond(200, content, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
             if path.startswith("/api/feeds/"):
                 self.require_admin()
                 if self.command != "DELETE":
