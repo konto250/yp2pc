@@ -1,0 +1,43 @@
+# compose.yaml に重ねて使用します。アプリのホスト側ポートは公開しません。
+services:
+  yp2pc:
+    ports: !reset []
+    volumes:
+      - type: bind
+        source: "${DATA_DIR:-./data}"
+        target: /data
+        bind:
+          create_host_path: false
+          selinux: Z
+
+  cloudflared:
+    image: "${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.11.0}"
+    restart: unless-stopped
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token-file
+      - /run/secrets/tunnel-token
+    depends_on:
+      yp2pc:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./.local/cloudflared-token
+        target: /run/secrets/tunnel-token
+        read_only: true
+        bind:
+          create_host_path: false
+          selinux: Z
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

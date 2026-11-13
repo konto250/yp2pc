@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 !.env.docker.example
+!.env.cloud.example
 .local/
 node_modules/
 data/

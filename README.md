@@ -31,6 +31,8 @@ Linux側は初回にソースのアーカイブを転送して配置したため
 
 ## Linux Dockerで起動
 
+Oracle Cloudへ移行し、アプリと `cloudflared` の両方をDockerで動かす場合は、[Oracle Cloud移行手順](docs/oracle-cloud.md)を参照してください。
+
 ```bash
 mkdir -p data
 cp .env.docker.example .env
